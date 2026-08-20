@@ -287,7 +287,12 @@ function TelegramLogin({ login, loading }) {
       }
 
       window.Telegram.Login.init(
-        { client_id: clientId, scope: ["profile", "write"], lang: "ar" },
+        {
+          client_id: clientId,
+          redirect_uri: window.location.origin,
+          scope: ["profile", "write"],
+          lang: "ar",
+        },
         (result) => {
           if (!result?.id_token) {
             setError(result?.error || "لم تكتمل المصادقة عبر Telegram.");
