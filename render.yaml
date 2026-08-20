@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: super-amazon
+    runtime: node
+    buildCommand: cd frontend && npm ci && npm run build && cd ../backend && npm ci
+    startCommand: cd backend && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: OWNER_SETUP_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false

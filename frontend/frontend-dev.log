@@ -1,0 +1,10 @@
+
+> super-amazon-frontend@1.1.0 dev
+> vite --host 127.0.0.1
+
+١٢:٤٨:٥١ م [vite] (client) Re-optimizing dependencies because vite config has changed
+
+  VITE v8.2.1  ready in 578 ms
+
+  ➜  Local:   http://127.0.0.1:5173/
+  ➜  press h + enter to show help

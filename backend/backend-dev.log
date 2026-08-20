@@ -1,0 +1,17 @@
+
+> super-amazon-backend@1.0.0 dev
+> node --watch src/server.js
+
+Super Amazon backend listening on http://localhost:4000
+Change detected in 'C:\\Users\\hh031\\OneDrive\\Desktop\\Super-Amazon-V1.0\\backend\\src\\routes\\owner.routes.js'
+Restarting 'src/server.js'
+Super Amazon backend listening on http://localhost:4000
+Change detected in 'C:\\Users\\hh031\\OneDrive\\Desktop\\Super-Amazon-V1.0\\backend\\src\\server.js'
+Restarting 'src/server.js'
+Super Amazon backend listening on http://localhost:4000
+Change detected in 'C:\\Users\\hh031\\OneDrive\\Desktop\\Super-Amazon-V1.0\\backend\\src\\server.js'
+Restarting 'src/server.js'
+Super Amazon backend listening on http://localhost:4000
+Change detected in 'C:\\Users\\hh031\\OneDrive\\Desktop\\Super-Amazon-V1.0\\backend\\src\\server.js'
+Restarting 'src/server.js'
+Super Amazon backend listening on http://localhost:4000

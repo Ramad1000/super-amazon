@@ -1,0 +1,1 @@
+const {Pool}=require("pg");const {DATABASE_URL}=require("../config/env");const pool=new Pool({connectionString:DATABASE_URL});pool.on("error",e=>console.error("PostgreSQL:",e));const query=(t,p)=>pool.query(t,p);module.exports={pool,query,closeDatabase:()=>pool.end()};

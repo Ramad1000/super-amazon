@@ -1,0 +1,8 @@
+backend/.env
+backend/.env.telegram.local
+frontend/.env
+**/node_modules/
+frontend/dist/
+backend/uploads/
+backend/logs/
+*.log
