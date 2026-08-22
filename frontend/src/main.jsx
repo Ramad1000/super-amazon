@@ -1799,7 +1799,6 @@ function OwnerComplaints() {
   const [selected, setSelected] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [search, setSearch] = useState("");
 
   async function loadComplaints() {
     try {
@@ -1897,6 +1896,7 @@ function Requests() {
   const [selected, setSelected] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
   async function loadRequests() {
     try { const result = await api("/owner/requests"); setData(result.requests || []); }
     catch (error) { setMessage(error.message); } finally { setLoading(false); }
