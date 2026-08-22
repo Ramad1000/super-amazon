@@ -289,7 +289,6 @@ function TelegramLogin({ login, loading }) {
       window.Telegram.Login.init(
         {
           client_id: clientId,
-          redirect_uri: window.location.origin,
           scope: ["profile", "write"],
           lang: "ar",
         },
