@@ -43,10 +43,9 @@ function beginTelegramAuthorization(returnUrl) {
   const state = base64Url(crypto.randomBytes(32));
   const verifier = base64Url(crypto.randomBytes(48));
   const challenge = base64Url(crypto.createHash("sha256").update(verifier).digest());
-  // BotFather's Domain setting registers the site origin. Use that exact
-  // origin as the OAuth redirect URI, then exchange the returned code through
-  // our API from the application page.
-  const callbackUrl = origin;
+  // Telegram must return to a registered server callback URL. The callback
+  // exchanges the authorization code, then redirects the user back to the UI.
+  const callbackUrl = new URL("/api/auth/telegram/callback", origin).toString();
 
   for (const [key, attempt] of telegramAttempts) {
     if (Date.now() - attempt.createdAt > 10 * 60 * 1000) telegramAttempts.delete(key);
