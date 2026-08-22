@@ -605,7 +605,14 @@ function Home({
 
   useEffect(() => {
     if (role !== "BROKER") return;
-    api("/finance/me").then((result) => setBrokerFinance(result)).catch(() => {});
+    const loadBrokerFinance = () => api("/finance/me").then((result) => setBrokerFinance(result)).catch(() => {});
+    loadBrokerFinance();
+    const intervalId = window.setInterval(loadBrokerFinance, 30000);
+    window.addEventListener("focus", loadBrokerFinance);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", loadBrokerFinance);
+    };
   }, [role]);
 
   const cards = owner
@@ -1458,6 +1465,12 @@ function MemberComplaints() {
 
   useEffect(() => {
     loadComplaints();
+    const intervalId = window.setInterval(loadComplaints, 30000);
+    window.addEventListener("focus", loadComplaints);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", loadComplaints);
+    };
   }, []);
 
   async function loadComplaints() {
@@ -1762,7 +1775,15 @@ function OwnerComplaints() {
       setItems(result.complaints || []);
     } catch (error) { alert(error.message); } finally { setLoading(false); }
   }
-  useEffect(() => { loadComplaints(); }, []);
+  useEffect(() => {
+    loadComplaints();
+    const intervalId = window.setInterval(loadComplaints, 30000);
+    window.addEventListener("focus", loadComplaints);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", loadComplaints);
+    };
+  }, []);
 
   async function review(item, status) {
     const note = prompt("ملاحظة الإدارة للمستخدم (اختياري):", item.owner_note || "");
@@ -1988,8 +2009,17 @@ function Finance({ role }) {
   const [data, setData] = useState({ summary: { total: 0, paid: 0, remaining: 0 }, payments: [] });
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    api("/finance/me").then((result) => setData({ summary: result.summary, payments: result.payments || [] }))
-      .catch((error) => alert(error.message)).finally(() => setLoading(false));
+    const loadFinance = () => api("/finance/me")
+      .then((result) => setData({ summary: result.summary, payments: result.payments || [] }))
+      .catch((error) => console.error(error))
+      .finally(() => setLoading(false));
+    loadFinance();
+    const intervalId = window.setInterval(loadFinance, 30000);
+    window.addEventListener("focus", loadFinance);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", loadFinance);
+    };
   }, []);
   const money = (value) => Number(value || 0).toLocaleString("ar-IQ");
   return <div className="page">
@@ -2010,10 +2040,20 @@ function BrokerLedger({ mode }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api("/finance/me")
-      .then((result) => setData({ summary: result.summary || { total: 0, paid: 0, remaining: 0 }, payments: result.payments || [] }))
+    const loadLedger = () => api("/finance/me")
+      .then((result) => {
+        setData({ summary: result.summary || { total: 0, paid: 0, remaining: 0 }, payments: result.payments || [] });
+        setError("");
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+    loadLedger();
+    const intervalId = window.setInterval(loadLedger, 30000);
+    window.addEventListener("focus", loadLedger);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", loadLedger);
+    };
   }, []);
 
   const money = (value) => Number(value || 0).toLocaleString("ar-IQ");
@@ -2056,7 +2096,15 @@ function OwnerFinance() {
   async function load() {
     try { const result = await api("/owner/finance/brokers"); setBrokers(result.brokers || []); } catch (error) { setMessage(error.message); }
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const intervalId = window.setInterval(load, 30000);
+    window.addEventListener("focus", load);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", load);
+    };
+  }, []);
   async function addLift() {
     if (!brokerId || !Number(amount)) return setMessage("اختر وسيطًا واكتب المبلغ.");
     try { await api("/owner/finance/lifts", { method: "POST", body: JSON.stringify({ brokerId, amount: Number(amount), paymentMethod: method }) }); setAmount(""); setMessage("تمت إضافة الرفعة المالية."); load(); } catch (error) { setMessage(error.message); }
