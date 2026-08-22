@@ -69,6 +69,7 @@ function App() {
 
   const [page, setPage] = useState("home");
   const [dark, setDark] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 700);
   const [authError, setAuthError] = useState("");
   const [authenticating, setAuthenticating] = useState(false);
   const [authStatus, setAuthStatus] = useState("بانتظار تأكيد Telegram.");
@@ -138,6 +139,14 @@ function App() {
       .catch(() => logout());
   }, []);
 
+  useEffect(() => {
+    const closeOnMobileResize = () => {
+      setSidebarOpen(window.innerWidth > 700);
+    };
+    window.addEventListener("resize", closeOnMobileResize);
+    return () => window.removeEventListener("resize", closeOnMobileResize);
+  }, []);
+
   async function login(telegramPayload) {
     if (!telegramPayload?.id_token && !telegramPayload?.hash) {
       setAuthError("لم تصل بيانات المصادقة من Telegram. أعد المحاولة من الزر الظاهر أدناه.");
@@ -199,17 +208,21 @@ function App() {
       : user.account_type;
 
   return (
-    <div className={dark ? "shell dark" : "shell"}>
+    <div className={`${dark ? "shell dark" : "shell"} ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}>
       <Side
         role={role}
         page={page}
         setPage={setPage}
         logout={logout}
+        open={sidebarOpen}
+        onNavigate={() => { if (window.innerWidth <= 700) setSidebarOpen(false); }}
       />
+      <button className="sidebar-overlay" aria-label="إغلاق القائمة" onClick={() => setSidebarOpen(false)} />
 
       <main>
         <header>
           <div>
+            <button className="menu-toggle" aria-label={sidebarOpen ? "تصغير القائمة" : "إظهار القائمة"} aria-expanded={sidebarOpen} onClick={() => setSidebarOpen((current) => !current)}>☰</button>
             <small>Super Amazon / لوحة التحكم</small>
             <h1>
               مرحبًا، {user.telegram_name || "بك"} 👋
@@ -311,6 +324,8 @@ function Side({
   page,
   setPage,
   logout,
+  open,
+  onNavigate,
 }) {
   const items = [
     ["home", "الرئيسية", "⌂"],
@@ -374,7 +389,7 @@ function Side({
   );
 
   return (
-    <aside>
+    <aside className={open ? "sidebar expanded" : "sidebar collapsed"} aria-label="التنقل الرئيسي">
       <div className="logo">
         <b>SA</b>
 
@@ -393,6 +408,8 @@ function Side({
               : "nav"
           }
           onClick={() => setPage(item[0])}
+          onClickCapture={onNavigate}
+          title={item[1]}
         >
           {item[2]}
           <span>{item[1]}</span>
@@ -410,7 +427,7 @@ function Side({
           <small>@R_M_D</small>
         </a>
 
-        <button onClick={logout}>
+        <button onClick={logout} title="تسجيل الخروج">
           ⇦ تسجيل الخروج
         </button>
       </div>
