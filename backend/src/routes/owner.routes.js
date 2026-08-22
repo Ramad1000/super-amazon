@@ -35,6 +35,80 @@ router.get("/dashboard", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+router.get("/reports", async (req, res, next) => {
+  try {
+    const [users, requests, complaints, finance] = await Promise.all([
+      query(`SELECT account_type, COUNT(*)::int AS total FROM users GROUP BY account_type`),
+      query(`SELECT status, COUNT(*)::int AS total FROM requests GROUP BY status`),
+      query(`SELECT status, COUNT(*)::int AS total FROM complaints GROUP BY status`),
+      query(`SELECT COALESCE(SUM(total_amount),0) AS total, COALESCE(SUM(paid_amount),0) AS paid FROM broker_lifts`),
+    ]);
+    return res.json({ success: true, report: {
+      users: users.rows, requests: requests.rows, complaints: complaints.rows,
+      finance: { total: Number(finance.rows[0].total), paid: Number(finance.rows[0].paid) },
+      generatedAt: new Date().toISOString(),
+    }});
+  } catch (error) { return next(error); }
+});
+
+router.get("/assistants", async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT u.id, u.telegram_name, u.telegram_username, u.account_type, u.status, u.created_at,
+       COALESCE(array_agg(ap.permission) FILTER (WHERE ap.permission IS NOT NULL), '{}') AS permissions
+       FROM users u LEFT JOIN assistant_permissions ap ON ap.assistant_id = u.id
+       WHERE u.role = 'OWNER_ASSISTANT'::user_role
+       GROUP BY u.id ORDER BY u.created_at DESC`
+    );
+    return res.json({ success: true, assistants: result.rows });
+  } catch (error) { return next(error); }
+});
+
+router.post("/assistants", requireRoles("OWNER"), async (req, res, next) => {
+  const userId = String(req.body?.userId || "");
+  const permissions = Array.isArray(req.body?.permissions) ? req.body.permissions.map(String).filter(Boolean).slice(0, 8) : [];
+  if (!userId) return res.status(400).json({ success: false, message: "اختر المستخدم أولًا" });
+  try {
+    const user = await query(`UPDATE users SET role = 'OWNER_ASSISTANT'::user_role, updated_at = NOW() WHERE id = $1 AND role <> 'OWNER'::user_role RETURNING id, telegram_name`, [userId]);
+    if (!user.rows.length) return res.status(400).json({ success: false, message: "لا يمكن تعيين هذا الحساب مساعدًا" });
+    await query("DELETE FROM assistant_permissions WHERE assistant_id = $1", [userId]);
+    for (const permission of permissions) await query("INSERT INTO assistant_permissions (assistant_id, permission) VALUES ($1,$2)", [userId, permission]);
+    await query("INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details) VALUES ($1,'ASSIGN_OWNER_ASSISTANT','USER',$2,$3::jsonb)", [req.user.sub, userId, JSON.stringify({ permissions })]);
+    return res.status(201).json({ success: true, assistant: user.rows[0] });
+  } catch (error) { return next(error); }
+});
+
+router.delete("/assistants/:id", requireRoles("OWNER"), async (req, res, next) => {
+  try {
+    const result = await query(`UPDATE users SET role = 'MEMBER'::user_role, updated_at = NOW() WHERE id = $1 AND role = 'OWNER_ASSISTANT'::user_role RETURNING id, telegram_name`, [req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ success: false, message: "المساعد غير موجود" });
+    await query("INSERT INTO audit_logs (actor_user_id, action, target_type, target_id) VALUES ($1,'REMOVE_OWNER_ASSISTANT','USER',$2)", [req.user.sub, req.params.id]);
+    return res.json({ success: true });
+  } catch (error) { return next(error); }
+});
+
+router.get("/audit", async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT a.id, a.action, a.target_type, a.target_id, a.details, a.created_at,
+       u.telegram_name, u.telegram_username FROM audit_logs a
+       LEFT JOIN users u ON u.id = a.actor_user_id ORDER BY a.created_at DESC LIMIT 150`
+    );
+    return res.json({ success: true, logs: result.rows });
+  } catch (error) { return next(error); }
+});
+
+router.get("/system", async (req, res, next) => {
+  try {
+    const started = Date.now();
+    await query("SELECT 1");
+    return res.json({ success: true, system: {
+      database: "OPERATIONAL", api: "OPERATIONAL", databaseLatencyMs: Date.now() - started,
+      uptimeSeconds: Math.floor(process.uptime()), node: process.version, serverTime: new Date().toISOString(),
+    }});
+  } catch (error) { return next(error); }
+});
+
 router.get("/users", async (req, res, next) => {
   try {
     const result = await query(

@@ -483,30 +483,15 @@ function Router({
   }
 
   if (page === "reports") {
-    return (
-      <Basic
-        title="التقارير"
-        icon="▥"
-      />
-    );
+    return <OwnerReports />;
   }
 
   if (page === "assistants") {
-    return (
-      <Basic
-        title="المساعدون والصلاحيات"
-        icon="◇"
-      />
-    );
+    return <Assistants role={role} />;
   }
 
   if (page === "audit") {
-    return (
-      <Basic
-        title="سجل العمليات"
-        icon="◌"
-      />
-    );
+    return <AuditLog />;
   }
 
   if (page === "backup") {
@@ -514,12 +499,7 @@ function Router({
   }
 
   if (page === "system") {
-    return (
-      <Basic
-        title="حالة النظام"
-        icon="▦"
-      />
-    );
+    return <SystemStatus />;
   }
 
   if (page === "profile") {
@@ -2100,6 +2080,51 @@ function OwnerFinance() {
   </div>;
 }
 
+function OwnerReports() {
+  const [report, setReport] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => { api("/owner/reports").then((result) => setReport(result.report)).catch((err) => setError(err.message)); }, []);
+  const count = (rows, name) => Number((rows || []).find((item) => item.status === name || item.account_type === name)?.total || 0);
+  const money = (value) => Number(value || 0).toLocaleString("ar-IQ");
+  return <div className="page"><Title t="تقارير المنصة" d="ملخص حيّ للحسابات والطلبات والشكاوى والمالية." i="▥" />
+    {error && <p className="error">{error}</p>}
+    {!report ? <section className="panel"><p>جاري إعداد التقرير...</p></section> : <>
+      <div className="stats"><div className="stat"><small>الأعضاء</small><strong>{count(report.users, "MEMBER")}</strong><span>حساب</span></div><div className="stat"><small>ADMIN</small><strong>{count(report.users, "ADMIN")}</strong><span>حساب</span></div><div className="stat"><small>الوسطاء</small><strong>{count(report.users, "BROKER")}</strong><span>حساب</span></div></div>
+      <section className="panel"><h3>الطلبات والشكاوى</h3><Table rows={[["طلبات بانتظار المراجعة", count(report.requests, "PENDING"), "طلبات", "مفتوحة"],["طلبات معتمدة", count(report.requests, "APPROVED"), "طلبات", "مكتملة"],["شكاوى جديدة", count(report.complaints, "NEW"), "شكاوى", "تحتاج مراجعة"],["شكاوى محلولة", count(report.complaints, "RESOLVED"), "شكاوى", "مغلقة"]]} /></section>
+      <section className="panel" style={{ marginTop: "18px" }}><h3>ملخص مالية الوسطاء</h3><Table rows={[["إجمالي الرفعات", money(report.finance.total) + " د.ع", "مالي", "مسجل"],["إجمالي المدفوع", money(report.finance.paid) + " د.ع", "مالي", "مستلم"],["إجمالي المتبقي", money(report.finance.total - report.finance.paid) + " د.ع", "مالي", "قيد التحصيل"]]} /></section>
+      <p className="settings-saved">آخر تحديث: {new Date(report.generatedAt).toLocaleString("ar-IQ")}</p>
+    </>}
+  </div>;
+}
+
+function Assistants({ role }) {
+  const [assistants, setAssistants] = useState([]); const [users, setUsers] = useState([]); const [userId, setUserId] = useState("");
+  const [permissions, setPermissions] = useState(["REQUESTS", "COMPLAINTS"]); const [message, setMessage] = useState("");
+  const available = [["REQUESTS", "الطلبات"], ["COMPLAINTS", "الشكاوى"], ["USERS", "المستخدمون"], ["FINANCE", "المالية"], ["ANNOUNCEMENTS", "الإعلانات"]];
+  async function load() { try { const [assistantResult, userResult] = await Promise.all([api("/owner/assistants"), api("/owner/users")]); setAssistants(assistantResult.assistants || []); setUsers((userResult.users || []).filter((item) => item.role !== "OWNER" && item.role !== "OWNER_ASSISTANT")); } catch (error) { setMessage(error.message); } }
+  useEffect(() => { load(); }, []);
+  function toggle(value) { setPermissions((old) => old.includes(value) ? old.filter((item) => item !== value) : [...old, value]); }
+  async function add() { if (!userId) return setMessage("اختر حسابًا أولًا."); try { await api("/owner/assistants", { method: "POST", body: JSON.stringify({ userId, permissions }) }); setUserId(""); setMessage("تم تعيين المساعد والصلاحيات."); load(); } catch (error) { setMessage(error.message); } }
+  async function remove(id) { if (!window.confirm("إلغاء صلاحية هذا المساعد؟")) return; try { await api(`/owner/assistants/${id}`, { method: "DELETE" }); setMessage("تمت إزالة المساعد."); load(); } catch (error) { setMessage(error.message); } }
+  return <div className="page"><Title t="المساعدون والصلاحيات" d="منح صلاحيات محددة دون مشاركة حساب Owner." i="◇" />
+    {role === "OWNER" && <section className="panel"><h3>تعيين مساعد جديد</h3><select value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">اختر المستخدم</option>{users.map((item) => <option key={item.id} value={item.id}>{item.telegram_name || item.telegram_username || "مستخدم"} • {item.account_type}</option>)}</select><div className="permission-grid">{available.map(([value, label]) => <label key={value}><input type="checkbox" checked={permissions.includes(value)} onChange={() => toggle(value)} /> {label}</label>)}</div><button className="primary" onClick={add}>تعيين كمساعد Owner</button></section>}
+    <section className="panel" style={{ marginTop: "18px" }}><h3>المساعدون الحاليون</h3>{assistants.length ? assistants.map((assistant) => <article className="complaint-row" key={assistant.id}><b>{assistant.telegram_name || assistant.telegram_username || "مساعد"}</b><p>الصلاحيات: {(assistant.permissions || []).join("، ") || "بدون صلاحيات"}</p><small>الحالة: {assistant.status}</small>{role === "OWNER" && <button className="secondary" onClick={() => remove(assistant.id)}>إزالة المساعد</button>}</article>) : <p>لا يوجد مساعدون حاليًا.</p>}</section>{message && <p className="settings-saved">{message}</p>}
+  </div>;
+}
+
+function AuditLog() {
+  const [logs, setLogs] = useState([]); const [error, setError] = useState("");
+  useEffect(() => { api("/owner/audit").then((result) => setLogs(result.logs || [])).catch((err) => setError(err.message)); }, []);
+  return <div className="page"><Title t="سجل العمليات" d="تتبّع المراجعات والتغييرات الإدارية الأخيرة." i="◌" />{error && <p className="error">{error}</p>}<section className="panel">{logs.length ? logs.map((log) => <article className="complaint-row" key={log.id}><b>{log.action.replaceAll("_", " ")}</b><p>{log.telegram_name || log.telegram_username || "النظام"}{log.target_type ? ` • ${log.target_type}` : ""}{log.target_id ? ` • ${log.target_id.slice(0, 8)}` : ""}</p><small>{new Date(log.created_at).toLocaleString("ar-IQ")}</small></article>) : <p>لا توجد عمليات مسجلة بعد.</p>}</section></div>;
+}
+
+function SystemStatus() {
+  const [system, setSystem] = useState(null); const [error, setError] = useState("");
+  async function load() { setError(""); try { const result = await api("/owner/system"); setSystem(result.system); } catch (err) { setError(err.message); } }
+  useEffect(() => { load(); }, []);
+  return <div className="page"><Title t="حالة النظام" d="فحص مباشر للخادم وقاعدة البيانات." i="▦" />{error && <p className="error">{error}</p>}<section className="panel">{!system ? <p>جاري الفحص...</p> : <><div className="stats"><div className="stat"><small>واجهة API</small><strong>✓</strong><span>تعمل</span></div><div className="stat"><small>قاعدة البيانات</small><strong>✓</strong><span>{system.databaseLatencyMs} ms</span></div><div className="stat"><small>وقت التشغيل</small><strong>{Math.floor(system.uptimeSeconds / 60)}</strong><span>دقيقة</span></div></div><p>وقت الخادم: {new Date(system.serverTime).toLocaleString("ar-IQ")}</p><button className="secondary" onClick={load}>إعادة الفحص</button></>}</section></div>;
+}
+
 function Backup() {
   return (
     <div className="page">
@@ -2150,11 +2175,13 @@ function Backup() {
 }
 
 function Profile({ user }) {
+  const [copied, setCopied] = useState(false);
+  function copyId() { navigator.clipboard?.writeText(String(user.telegram_id || "")); setCopied(true); setTimeout(() => setCopied(false), 1600); }
   return (
     <div className="page">
       <Title
         t="ملفي الشخصي"
-        d="معلومات حسابك الأساسية."
+        d="بيانات الهوية المرتبطة بحساب Telegram الخاص بك."
         i="◎"
       />
 
@@ -2178,6 +2205,16 @@ function Profile({ user }) {
             {user.telegram_id}
           </small>
         </div>
+      </section>
+
+      <section className="panel" style={{ marginTop: "18px" }}>
+        <h3>تفاصيل الحساب</h3>
+        <Table rows={[
+          ["نوع الحساب", meta[user.role === "OWNER" || user.role === "OWNER_ASSISTANT" ? user.role : user.account_type]?.[0] || user.account_type, "الصلاحية", user.role],
+          ["حالة الحساب", user.status === "ACTIVE" ? "نشط" : user.status, "التحقق", user.is_verified ? "مؤكد" : "قيد التحقق"],
+          ["تاريخ الانضمام", user.created_at ? new Date(user.created_at).toLocaleDateString("ar-IQ") : "—", "هوية Telegram", String(user.telegram_id || "—")],
+        ]} />
+        <button className="secondary" onClick={copyId}>{copied ? "تم نسخ المعرّف" : "نسخ معرّف Telegram"}</button>
       </section>
     </div>
   );
