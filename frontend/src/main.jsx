@@ -354,6 +354,10 @@ function Side({
       "application",
       "حالة الطلب",
       "▣",
+    ], [
+      "complaints",
+      "الشكاوى",
+      "⚑",
     ]);
   }
 
@@ -362,7 +366,8 @@ function Side({
       ["application", "حالة الطلب", "▣"],
       ["finance", "المالية", "₿"],
       ["payments", "الدفعات", "↗"],
-      ["receipts", "الإيصالات", "▧"]
+      ["receipts", "الإيصالات", "▧"],
+      ["complaints", "الشكاوى", "⚑"]
     );
   }
 
@@ -485,21 +490,11 @@ function Router({
   }
 
   if (page === "payments") {
-    return (
-      <Basic
-        title="الدفعات"
-        icon="↗"
-      />
-    );
+    return role === "BROKER" ? <BrokerLedger mode="payments" /> : <Basic title="الدفعات" icon="↗" />;
   }
 
   if (page === "receipts") {
-    return (
-      <Basic
-        title="الإيصالات"
-        icon="▧"
-      />
-    );
+    return role === "BROKER" ? <BrokerLedger mode="receipts" /> : <Basic title="الإيصالات" icon="▧" />;
   }
 
   if (page === "users") {
@@ -581,10 +576,33 @@ function Home({
     role === "OWNER_ASSISTANT";
 
   const [ownerDashboard, setOwnerDashboard] = useState(null);
+  const [accountDashboard, setAccountDashboard] = useState(null);
+  const [brokerFinance, setBrokerFinance] = useState(null);
+
   useEffect(() => {
     if (!owner) return;
     api("/owner/dashboard").then((result) => setOwnerDashboard(result.dashboard)).catch(() => {});
   }, [owner]);
+
+  useEffect(() => {
+    if (owner) return;
+    Promise.all([
+      api("/notifications"),
+      api("/complaints/me"),
+      api("/announcements"),
+    ]).then(([notifications, complaints, announcements]) => {
+      setAccountDashboard({
+        unreadNotifications: (notifications.notifications || []).filter((item) => !item.is_read).length,
+        complaints: complaints.complaints || [],
+        announcements: announcements.announcements || [],
+      });
+    }).catch(() => {});
+  }, [owner]);
+
+  useEffect(() => {
+    if (role !== "BROKER") return;
+    api("/finance/me").then((result) => setBrokerFinance(result)).catch(() => {});
+  }, [role]);
 
   const cards = owner
     ? [
@@ -612,24 +630,24 @@ function Home({
     : role === "BROKER"
     ? [
         [
-          "سعر الرفعة",
-          "750,000",
+          "إجمالي الرفعات",
+          brokerFinance ? Number(brokerFinance.summary.total || 0).toLocaleString("ar-IQ") : "—",
           "د.ع",
         ],
         [
           "المدفوع",
-          "500,000",
+          brokerFinance ? Number(brokerFinance.summary.paid || 0).toLocaleString("ar-IQ") : "—",
           "د.ع",
         ],
         [
           "المتبقي",
-          "250,000",
+          brokerFinance ? Number(brokerFinance.summary.remaining || 0).toLocaleString("ar-IQ") : "—",
           "د.ع",
         ],
         [
-          "التمويل الشهري",
-          "750,000",
-          "د.ع",
+          "عدد الدفعات",
+          brokerFinance ? String((brokerFinance.payments || []).length) : "—",
+          "سجل مالي فعلي",
         ],
       ]
     : [
@@ -644,18 +662,18 @@ function Home({
         ],
         [
           "الإشعارات",
-          "03",
+          accountDashboard ? String(accountDashboard.unreadNotifications) : "—",
           "غير مقروءة",
         ],
         [
-          "القوانين",
-          "05",
-          "تحديثات جديدة",
+          "الشكاوى",
+          accountDashboard ? String(accountDashboard.complaints.length) : "—",
+          "تم إرسالها",
         ],
         [
-          "الدعم",
-          "24/7",
-          "تواصل معنا",
+          "التوجيهات",
+          accountDashboard ? String(accountDashboard.announcements.length) : "—",
+          "إعلانات متاحة",
         ],
       ];
 
@@ -688,14 +706,30 @@ function Home({
           "complaints",
         ],
       ]
-    : role === "BROKER" ||
-      role === "ADMIN"
+    : role === "ADMIN"
     ? [
         [
           "حالة الطلب",
           "تابع طلبك",
           "application",
         ],
+        [
+          "الشكاوى",
+          "تقديم ومتابعة شكواك",
+          "complaints",
+        ],
+        [
+          "الإشعارات",
+          "آخر تحديثات حسابك",
+          "notifications",
+        ],
+      ]
+    : role === "BROKER"
+    ? [
+        ["المالية", "رصيدك ودفعاتك الفعلية", "finance"],
+        ["الدفعات", "سجل الدفعات", "payments"],
+        ["الإيصالات", "سجل إيصالاتك", "receipts"],
+        ["الشكاوى", "تقديم ومتابعة شكوى", "complaints"],
       ]
     : [];
 
@@ -1964,6 +1998,44 @@ function Finance({ role }) {
       <div className="stat"><small>المتبقي</small><strong>{money(data.summary.remaining)}</strong><span>د.ع</span></div>
     </div>
     <section className="panel"><h3>آخر الدفعات</h3>{loading ? <p>جاري التحميل...</p> : <Table rows={data.payments.length ? data.payments.map((payment) => [payment.payment_type, money(payment.amount) + " د.ع", new Date(payment.payment_date).toLocaleDateString("ar-IQ"), payment.note || "—"]) : [["لا توجد دفعات", "—", "—", "—"]]} />}</section>
+  </div>;
+}
+
+function BrokerLedger({ mode }) {
+  const [data, setData] = useState({ summary: { total: 0, paid: 0, remaining: 0 }, payments: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api("/finance/me")
+      .then((result) => setData({ summary: result.summary || { total: 0, paid: 0, remaining: 0 }, payments: result.payments || [] }))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const money = (value) => Number(value || 0).toLocaleString("ar-IQ");
+  const title = mode === "receipts" ? "الإيصالات المالية" : "سجل الدفعات";
+  const description = mode === "receipts"
+    ? "إيصالات دفعاتك المسجلة من الإدارة."
+    : "جميع الدفعات المرتبطة بحسابك، مباشرة من السجل المالي.";
+
+  return <div className="page">
+    <Title t={title} d={description} i={mode === "receipts" ? "▧" : "↗"} />
+    {error && <p className="error">{error}</p>}
+    <div className="stats">
+      <div className="stat"><small>إجمالي الرفعات</small><strong>{money(data.summary.total)}</strong><span>د.ع</span></div>
+      <div className="stat"><small>إجمالي المدفوع</small><strong>{money(data.summary.paid)}</strong><span>د.ع</span></div>
+      <div className="stat"><small>المتبقي</small><strong>{money(data.summary.remaining)}</strong><span>د.ع</span></div>
+    </div>
+    <section className="panel">
+      <h3>{mode === "receipts" ? "الإيصالات المتاحة" : "الدفعات المسجلة"}</h3>
+      {loading ? <p>جاري تحميل السجل المالي...</p> : <Table rows={data.payments.length ? data.payments.map((payment) => [
+        mode === "receipts" ? "إيصال دفعة" : payment.payment_type,
+        `${money(payment.amount)} د.ع`,
+        new Date(payment.payment_date).toLocaleString("ar-IQ"),
+        payment.note || "دفعة مسجلة من الإدارة",
+      ]) : [["لا يوجد سجل مالي بعد", "—", "—", "—"]]} />}
+    </section>
   </div>;
 }
 
