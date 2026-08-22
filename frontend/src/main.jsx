@@ -265,36 +265,62 @@ function Login({ login, error, loading, status }) {
 }
 
 function TelegramLogin({ login, loading }) {
-  const botUsername = import.meta.env.VITE_TELEGRAM_BOT_USERNAME;
+  const clientId = Number(import.meta.env.VITE_TELEGRAM_CLIENT_ID);
   const [error, setError] = useState("");
-  const containerRef = useRef(null);
+  const [ready, setReady] = useState(false);
+  const loginRef = useRef(login);
 
   useEffect(() => {
-    if (!botUsername || !containerRef.current) return undefined;
+    loginRef.current = login;
+  }, [login]);
+
+  useEffect(() => {
+    if (!clientId) return undefined;
 
     const script = document.createElement("script");
     script.async = true;
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.setAttribute("data-telegram-login", botUsername);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-radius", "10");
-    script.setAttribute("data-request-access", "write");
-    script.setAttribute("data-auth-url", `${window.location.origin}/api/auth/telegram/widget-callback`);
+    script.src = "https://telegram.org/js/telegram-login.js?3";
+    script.onload = () => {
+      if (!window.Telegram?.Login) {
+        setError("تعذر تحميل خدمة تسجيل Telegram.");
+        return;
+      }
+      window.Telegram.Login.init(
+        { client_id: clientId, scope: ["profile", "write"], lang: "ar" },
+        (result) => {
+          if (!result?.id_token) {
+            setError(result?.error || "لم تكتمل المصادقة عبر Telegram.");
+            return;
+          }
+          loginRef.current({ id_token: result.id_token });
+        }
+      );
+      setReady(true);
+    };
     script.onerror = () => setError("تعذر تحميل زر Telegram. تحقق من الاتصال.");
-    containerRef.current.replaceChildren(script);
+    document.head.appendChild(script);
 
     return () => {
       script.remove();
     };
-  }, [botUsername]);
+  }, [clientId]);
 
-  if (!botUsername) return <small className="error">اسم بوت Telegram غير مضبوط.</small>;
+  if (!clientId) return <small className="error">معرّف Telegram غير مضبوط.</small>;
+
+  function openLogin() {
+    setError("");
+    if (!window.Telegram?.Login || !ready) {
+      setError("جاري تجهيز تسجيل Telegram، أعد المحاولة بعد لحظات.");
+      return;
+    }
+    window.Telegram.Login.open();
+  }
 
   return (
     <>
-      <div ref={containerRef} className="telegram-widget">
-        <span>جاري تحميل تسجيل Telegram...</span>
-      </div>
+      <button className="telegram" disabled={loading} onClick={openLogin}>
+        {loading ? "جاري إنشاء الجلسة..." : "تسجيل الدخول عبر Telegram"}
+      </button>
       {error && <small className="error">{error}</small>}
     </>
   );
