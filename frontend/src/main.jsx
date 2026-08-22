@@ -437,7 +437,15 @@ function Router({
   }
 
   if (page === "complaints") {
-    return <Complaints />;
+    return <Complaints role={role} />;
+  }
+
+  if (page === "notifications") {
+    return <Notifications />;
+  }
+
+  if (page === "rules") {
+    return <Announcements role={role} />;
   }
 
   if (page === "finance") {
@@ -1353,7 +1361,14 @@ function Application({ user }) {
   );
 }
 
-function Complaints() {
+function Complaints({ role }) {
+  if (role === "OWNER" || role === "OWNER_ASSISTANT") {
+    return <OwnerComplaints />;
+  }
+  return <MemberComplaints />;
+}
+
+function MemberComplaints() {
   const [targets, setTargets] =
     useState([]);
 
@@ -1605,6 +1620,97 @@ function Complaints() {
   );
 }
 
+function Notifications() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  async function loadNotifications() {
+    try {
+      const result = await api("/notifications");
+      setItems(result.notifications || []);
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadNotifications(); }, []);
+
+  async function markRead(id) {
+    try {
+      await api(`/notifications/${id}/read`, { method: "PATCH" });
+      setItems((current) => current.map((item) => item.id === id ? { ...item, is_read: true } : item));
+    } catch (error) { alert(error.message); }
+  }
+
+  async function markAllRead() {
+    try {
+      await api("/notifications/read-all", { method: "PATCH" });
+      setItems((current) => current.map((item) => ({ ...item, is_read: true })));
+    } catch (error) { alert(error.message); }
+  }
+
+  return (
+    <div className="page">
+      <Title t="الإشعارات" d="تابع آخر تحديثات حسابك وطلباتك." i="◉" />
+      <section className="panel">
+        <button className="secondary" onClick={markAllRead}>تحديد الكل كمقروء</button>
+        {loading ? <p>جاري التحميل...</p> : items.length === 0 ? <p>لا توجد إشعارات حاليًا.</p> : items.map((item) => (
+          <button className="notification-row" key={item.id} onClick={() => !item.is_read && markRead(item.id)}>
+            <b>{item.title}</b>
+            <span>{item.body}</span>
+            <small>{new Date(item.created_at).toLocaleString("ar-IQ")} {!item.is_read && "• جديد"}</small>
+          </button>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function OwnerComplaints() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  async function loadComplaints() {
+    try {
+      const result = await api("/owner/complaints");
+      setItems(result.complaints || []);
+    } catch (error) { alert(error.message); } finally { setLoading(false); }
+  }
+  useEffect(() => { loadComplaints(); }, []);
+
+  async function review(item, status) {
+    const note = prompt("ملاحظة الإدارة للمستخدم (اختياري):", item.owner_note || "");
+    if (note === null) return;
+    try {
+      await api(`/owner/complaints/${item.id}`, { method: "PATCH", body: JSON.stringify({ status, note }) });
+      await loadComplaints();
+    } catch (error) { alert(error.message); }
+  }
+
+  return (
+    <div className="page">
+      <Title t="إدارة الشكاوى" d="راجع الشكاوى وحدّث حالتها." i="⚑" />
+      <section className="panel">
+        {loading ? <p>جاري التحميل...</p> : items.length === 0 ? <p>لا توجد شكاوى.</p> : items.map((item) => (
+          <div className="complaint-row" key={item.id}>
+            <b>{item.target_type} • {item.status}</b>
+            <span>من: {item.complainant_name || "—"} | ضد: {item.target_name || "—"}</span>
+            <p>{item.body}</p>
+            {item.owner_note && <small>ملاحظة سابقة: {item.owner_note}</small>}
+            <div className="inline-actions">
+              <button onClick={() => review(item, "UNDER_REVIEW")}>قيد المراجعة</button>
+              <button onClick={() => review(item, "RESOLVED")}>حل الشكوى</button>
+              <button onClick={() => review(item, "REJECTED")}>رفض</button>
+            </div>
+          </div>
+        ))}
+      </section>
+    </div>
+  );
+}
+
 function Requests() {
   const [data, setData] =
     useState([]);
@@ -1833,11 +1939,72 @@ function Users() {
                   {user.is_verified
                     ? "✓"
                     : ""}
+                  <br />
+                  <button
+                    onClick={async () => {
+                      const nextStatus = user.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED";
+                      if (!confirm(nextStatus === "SUSPENDED" ? "إيقاف هذا الحساب؟" : "تفعيل هذا الحساب؟")) return;
+                      try {
+                        await api(`/owner/users/${user.id}/status`, { method: "PATCH", body: JSON.stringify({ status: nextStatus }) });
+                        setData((items) => items.map((item) => item.id === user.id ? { ...item, status: nextStatus } : item));
+                      } catch (error) { alert(error.message); }
+                    }}
+                  >
+                    {user.status === "SUSPENDED" ? "تفعيل" : "إيقاف"}
+                  </button>
                 </span>
               </div>
             ))}
           </div>
         )}
+      </section>
+    </div>
+  );
+}
+
+function Announcements({ role }) {
+  const owner = role === "OWNER" || role === "OWNER_ASSISTANT";
+  const [items, setItems] = useState([]);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [important, setImportant] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  async function loadAnnouncements() {
+    try {
+      const result = await api(owner ? "/announcements/manage" : "/announcements");
+      setItems(result.announcements || []);
+    } catch (error) { alert(error.message); }
+  }
+  useEffect(() => { loadAnnouncements(); }, []);
+
+  async function createAnnouncement() {
+    if (!title.trim() || !body.trim()) return alert("اكتب العنوان والمحتوى");
+    setSending(true);
+    try {
+      await api("/announcements/manage", { method: "POST", body: JSON.stringify({ title: title.trim(), body: body.trim(), important, published: true }) });
+      setTitle(""); setBody(""); setImportant(false); await loadAnnouncements();
+    } catch (error) { alert(error.message); } finally { setSending(false); }
+  }
+
+  return (
+    <div className="page">
+      <Title t={owner ? "الإعلانات والتوجيهات" : "القوانين والتوجيهات"} d="آخر تحديثات وتعليمات المنصة." i="▤" />
+      {owner && <section className="panel" style={{ marginBottom: "18px" }}>
+        <h3>إعلان جديد</h3>
+        <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="عنوان الإعلان" />
+        <textarea rows="5" value={body} onChange={(event) => setBody(event.target.value)} placeholder="محتوى الإعلان" />
+        <label><input type="checkbox" checked={important} onChange={(event) => setImportant(event.target.checked)} /> إعلان مهم</label>
+        <button className="primary" disabled={sending} onClick={createAnnouncement}>{sending ? "جاري النشر..." : "نشر الإعلان"}</button>
+      </section>}
+      <section className="panel">
+        {items.length === 0 ? <p>لا توجد إعلانات حاليًا.</p> : items.map((item) => (
+          <article className="complaint-row" key={item.id}>
+            <b>{item.important ? "مهم • " : ""}{item.title}</b>
+            <p>{item.body}</p>
+            <small>{new Date(item.created_at).toLocaleString("ar-IQ")}{owner ? ` • ${item.published ? "منشور" : "مسودة"}` : ""}</small>
+          </article>
+        ))}
       </section>
     </div>
   );

@@ -17,6 +17,41 @@ router.get("/requests", async (req, res, next) => {
   }
 });
 
+router.get("/users", async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT id, telegram_id, telegram_username, telegram_name, account_type, role, status,
+       is_verified, created_at FROM users ORDER BY created_at DESC`
+    );
+    return res.json({ success: true, users: result.rows });
+  } catch (error) { return next(error); }
+});
+
+router.patch("/users/:id/status", async (req, res, next) => {
+  const status = String(req.body?.status || "").toUpperCase();
+  if (!["ACTIVE", "SUSPENDED"].includes(status)) {
+    return res.status(400).json({ success: false, message: "الحالة غير صالحة" });
+  }
+  if (req.params.id === req.user.sub) {
+    return res.status(400).json({ success: false, message: "لا يمكنك إيقاف حسابك من هذه الصفحة" });
+  }
+  try {
+    const result = await query(
+      `UPDATE users SET status = $1::user_status, updated_at = NOW() WHERE id = $2
+       RETURNING id, telegram_name, telegram_username, account_type, role, status, is_verified`,
+      [status, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+    const user = result.rows[0];
+    await query("INSERT INTO notifications (user_id, title, body) VALUES ($1,$2,$3)", [
+      user.id,
+      status === "SUSPENDED" ? "تم إيقاف حسابك" : "تم تفعيل حسابك",
+      status === "SUSPENDED" ? "تم إيقاف الحساب من الإدارة. تواصل مع الدعم عند الحاجة." : "تم تفعيل الحساب من الإدارة.",
+    ]);
+    return res.json({ success: true, user });
+  } catch (error) { return next(error); }
+});
+
 router.patch("/requests/:id/review", async (req, res, next) => {
   const decision = req.body?.decision;
   const note = String(req.body?.note || "").trim();
@@ -72,6 +107,42 @@ router.patch("/requests/:id/review", async (req, res, next) => {
   } finally {
     client.release();
   }
+});
+
+router.get("/complaints", async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT c.*, a.telegram_name AS complainant_name, a.telegram_username AS complainant_username,
+       t.telegram_name AS target_name, t.telegram_username AS target_username
+       FROM complaints c
+       JOIN users a ON a.id = c.complainant_id
+       JOIN users t ON t.id = c.target_user_id
+       ORDER BY c.created_at DESC`
+    );
+    return res.json({ success: true, complaints: result.rows });
+  } catch (error) { return next(error); }
+});
+
+router.patch("/complaints/:id", async (req, res, next) => {
+  const status = String(req.body?.status || "").toUpperCase();
+  const note = String(req.body?.note || "").trim();
+  if (!["UNDER_REVIEW", "RESOLVED", "REJECTED"].includes(status)) {
+    return res.status(400).json({ success: false, message: "حالة الشكوى غير صالحة" });
+  }
+  try {
+    const result = await query(
+      `UPDATE complaints SET status = $1, owner_note = $2, updated_at = NOW()
+       WHERE id = $3 RETURNING *`,
+      [status, note || null, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, message: "الشكوى غير موجودة" });
+    const complaint = result.rows[0];
+    await query(
+      "INSERT INTO notifications (user_id, title, body) VALUES ($1,$2,$3)",
+      [complaint.complainant_id, "تم تحديث الشكوى", note || `تم تغيير حالة الشكوى إلى ${status}.`]
+    );
+    return res.json({ success: true, complaint });
+  } catch (error) { return next(error); }
 });
 
 module.exports = router;

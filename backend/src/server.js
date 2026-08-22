@@ -21,6 +21,9 @@ app.get("/health", (req, res) => {
 app.use("/api/auth", require("./routes/auth.routes"));
 app.use("/api/requests", require("./routes/request.routes"));
 app.use("/api/owner", require("./routes/owner.routes"));
+app.use("/api/complaints", require("./routes/complaint.routes"));
+app.use("/api/notifications", require("./routes/notification.routes"));
+app.use("/api/announcements", require("./routes/announcement.routes"));
 
 // In production Render serves the compiled React application from this same
 // Node service, so the browser can call /api without a separate tunnel.
