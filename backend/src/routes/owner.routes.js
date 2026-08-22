@@ -17,6 +17,24 @@ router.get("/requests", async (req, res, next) => {
   }
 });
 
+router.get("/dashboard", async (req, res, next) => {
+  try {
+    const [users, pendingRequests, openComplaints, finance] = await Promise.all([
+      query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status = 'ACTIVE')::int AS active FROM users`),
+      query(`SELECT COUNT(*)::int AS total FROM requests WHERE status = 'PENDING'::request_status`),
+      query(`SELECT COUNT(*)::int AS total FROM complaints WHERE status IN ('NEW','UNDER_REVIEW')`),
+      query(`SELECT COALESCE(SUM(total_amount - paid_amount),0) AS remaining FROM broker_lifts`),
+    ]);
+    return res.json({ success: true, dashboard: {
+      totalUsers: users.rows[0].total,
+      activeUsers: users.rows[0].active,
+      pendingRequests: pendingRequests.rows[0].total,
+      openComplaints: openComplaints.rows[0].total,
+      brokerRemaining: Number(finance.rows[0].remaining),
+    }});
+  } catch (error) { return next(error); }
+});
+
 router.get("/users", async (req, res, next) => {
   try {
     const result = await query(
@@ -37,6 +55,17 @@ router.get("/finance/brokers", async (req, res, next) => {
        GROUP BY u.id ORDER BY u.telegram_name NULLS LAST`
     );
     return res.json({ success: true, brokers: result.rows });
+  } catch (error) { return next(error); }
+});
+
+router.get("/finance/brokers/:id/lifts", async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT id, total_amount, paid_amount, payment_method, created_at
+       FROM broker_lifts WHERE broker_id = $1 ORDER BY created_at DESC`,
+      [req.params.id]
+    );
+    return res.json({ success: true, lifts: result.rows });
   } catch (error) { return next(error); }
 });
 

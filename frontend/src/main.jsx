@@ -453,7 +453,7 @@ function Router({
   }
 
   if (page === "finance") {
-    return <Finance />;
+    return <Finance role={role} />;
   }
 
   if (page === "payments") {
@@ -572,27 +572,33 @@ function Home({
     role === "OWNER" ||
     role === "OWNER_ASSISTANT";
 
+  const [ownerDashboard, setOwnerDashboard] = useState(null);
+  useEffect(() => {
+    if (!owner) return;
+    api("/owner/dashboard").then((result) => setOwnerDashboard(result.dashboard)).catch(() => {});
+  }, [owner]);
+
   const cards = owner
     ? [
         [
           "إجمالي المستخدمين",
-          "1,248",
-          "+8.4%",
+          ownerDashboard ? ownerDashboard.totalUsers.toLocaleString("ar-IQ") : "—",
+          ownerDashboard ? `${ownerDashboard.activeUsers} نشط` : "جاري التحميل",
         ],
         [
           "الطلبات الجديدة",
-          "26",
+          ownerDashboard ? ownerDashboard.pendingRequests : "—",
           "تحتاج مراجعة",
         ],
         [
           "الشكاوى المفتوحة",
-          "14",
-          "3 عاجلة",
+          ownerDashboard ? ownerDashboard.openComplaints : "—",
+          "تحتاج مراجعة",
         ],
         [
-          "تمويل الوسطاء",
-          "18.4M",
-          "د.ع هذا الشهر",
+          "مستحقات الوسطاء",
+          ownerDashboard ? ownerDashboard.brokerRemaining.toLocaleString("ar-IQ") : "—",
+          "د.ع متبقية",
         ],
       ]
     : role === "BROKER"
@@ -657,6 +663,9 @@ function Home({
           "إدارة الشكاوى",
           "complaints",
         ],
+        ["المستخدمون", "إدارة الحسابات", "users"],
+        ["المالية", "إدارة الوسطاء والدفعات", "finance"],
+        ["الإعلانات", "نشر التوجيهات", "rules"],
       ]
     : role === "MEMBER"
     ? [
@@ -2031,7 +2040,8 @@ function Announcements({ role }) {
   );
 }
 
-function Finance() {
+function Finance({ role }) {
+  if (role === "OWNER" || role === "OWNER_ASSISTANT") return <OwnerFinance />;
   const [data, setData] = useState({ summary: { total: 0, paid: 0, remaining: 0 }, payments: [] });
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -2048,6 +2058,45 @@ function Finance() {
       <div className="stat"><small>المتبقي</small><strong>{money(data.summary.remaining)}</strong><span>د.ع</span></div>
     </div>
     <section className="panel"><h3>آخر الدفعات</h3>{loading ? <p>جاري التحميل...</p> : <Table rows={data.payments.length ? data.payments.map((payment) => [payment.payment_type, money(payment.amount) + " د.ع", new Date(payment.payment_date).toLocaleDateString("ar-IQ"), payment.note || "—"]) : [["لا توجد دفعات", "—", "—", "—"]]} />}</section>
+  </div>;
+}
+
+function OwnerFinance() {
+  const [brokers, setBrokers] = useState([]);
+  const [brokerId, setBrokerId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("CASH");
+  const [paymentBrokerId, setPaymentBrokerId] = useState("");
+  const [lifts, setLifts] = useState([]);
+  const [liftId, setLiftId] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentNote, setPaymentNote] = useState("");
+  const [message, setMessage] = useState("");
+  async function load() {
+    try { const result = await api("/owner/finance/brokers"); setBrokers(result.brokers || []); } catch (error) { setMessage(error.message); }
+  }
+  useEffect(() => { load(); }, []);
+  async function addLift() {
+    if (!brokerId || !Number(amount)) return setMessage("اختر وسيطًا واكتب المبلغ.");
+    try { await api("/owner/finance/lifts", { method: "POST", body: JSON.stringify({ brokerId, amount: Number(amount), paymentMethod: method }) }); setAmount(""); setMessage("تمت إضافة الرفعة المالية."); load(); } catch (error) { setMessage(error.message); }
+  }
+  async function loadLifts(id) {
+    setPaymentBrokerId(id); setLiftId(""); setLifts([]);
+    if (!id) return;
+    try { const result = await api(`/owner/finance/brokers/${id}/lifts`); setLifts(result.lifts || []); } catch (error) { setMessage(error.message); }
+  }
+  async function addPayment() {
+    if (!paymentBrokerId || !liftId || !Number(paymentAmount)) return setMessage("اختر الوسيط والرفعة واكتب مبلغ الدفعة.");
+    try {
+      await api("/owner/finance/payments", { method: "POST", body: JSON.stringify({ brokerId: paymentBrokerId, liftId, amount: Number(paymentAmount), note: paymentNote }) });
+      setPaymentAmount(""); setPaymentNote(""); setMessage("تم تسجيل الدفعة وتحديث رصيد الوسيط."); load(); loadLifts(paymentBrokerId);
+    } catch (error) { setMessage(error.message); }
+  }
+  return <div className="page">
+    <Title t="مالية الوسطاء" d="أضف الرفعات وتابع الأرصدة المتبقية." i="₿" />
+    <section className="panel"><h3>إضافة رفعة مالية</h3><select value={brokerId} onChange={(event) => setBrokerId(event.target.value)}><option value="">اختر الوسيط</option>{brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.telegram_name || broker.telegram_username || "وسيط"}</option>)}</select><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="numeric" placeholder="المبلغ بالدينار العراقي" /><div className="seg"><button className={method === "CASH" ? "on" : ""} onClick={() => setMethod("CASH")}>نقدي</button><button className={method === "INSTALLMENTS" ? "on" : ""} onClick={() => setMethod("INSTALLMENTS")}>أقساط</button></div><button className="primary" onClick={addLift}>إضافة الرفعة</button></section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>تسجيل دفعة لوسيط</h3><select value={paymentBrokerId} onChange={(event) => loadLifts(event.target.value)}><option value="">اختر الوسيط</option>{brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.telegram_name || broker.telegram_username || "وسيط"}</option>)}</select><select value={liftId} disabled={!paymentBrokerId} onChange={(event) => setLiftId(event.target.value)}><option value="">اختر الرفعة</option>{lifts.filter((lift) => Number(lift.total_amount) > Number(lift.paid_amount)).map((lift) => <option key={lift.id} value={lift.id}>متبقي {Number(lift.total_amount - lift.paid_amount).toLocaleString("ar-IQ")} د.ع</option>)}</select><input value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} inputMode="numeric" placeholder="قيمة الدفعة بالدينار العراقي" /><textarea rows="3" value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="ملاحظة اختيارية" /><button className="secondary" onClick={addPayment}>تسجيل الدفعة</button>{message && <p className="settings-saved">{message}</p>}</section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>أرصدة الوسطاء</h3><Table rows={brokers.length ? brokers.map((broker) => [broker.telegram_name || "—", Number(broker.total).toLocaleString("ar-IQ"), Number(broker.paid).toLocaleString("ar-IQ"), (Number(broker.total) - Number(broker.paid)).toLocaleString("ar-IQ")]) : [["لا يوجد وسطاء", "—", "—", "—"]]} /></section>
   </div>;
 }
 
