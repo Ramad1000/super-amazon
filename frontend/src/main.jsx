@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
@@ -264,65 +264,16 @@ function Login({ login, error, loading, status }) {
   );
 }
 
-function TelegramLogin({ login, loading }) {
-  const clientId = Number(import.meta.env.VITE_TELEGRAM_CLIENT_ID);
-  const [error, setError] = useState("");
-  const [ready, setReady] = useState(false);
-  const loginRef = useRef(login);
-
-  useEffect(() => {
-    loginRef.current = login;
-  }, [login]);
-
-  useEffect(() => {
-    if (!clientId) return undefined;
-
-    const script = document.createElement("script");
-    script.async = true;
-    script.src = "https://telegram.org/js/telegram-login.js?3";
-    script.onload = () => {
-      if (!window.Telegram?.Login) {
-        setError("تعذر تحميل خدمة تسجيل Telegram.");
-        return;
-      }
-      window.Telegram.Login.init(
-        { client_id: clientId, scope: ["profile", "write"], lang: "ar" },
-        (result) => {
-          if (!result?.id_token) {
-            setError(result?.error || "لم تكتمل المصادقة عبر Telegram.");
-            return;
-          }
-          loginRef.current({ id_token: result.id_token });
-        }
-      );
-      setReady(true);
-    };
-    script.onerror = () => setError("تعذر تحميل زر Telegram. تحقق من الاتصال.");
-    document.head.appendChild(script);
-
-    return () => {
-      script.remove();
-    };
-  }, [clientId]);
-
-  if (!clientId) return <small className="error">معرّف Telegram غير مضبوط.</small>;
-
+function TelegramLogin({ loading }) {
   function openLogin() {
-    setError("");
-    if (!window.Telegram?.Login || !ready) {
-      setError("جاري تجهيز تسجيل Telegram، أعد المحاولة بعد لحظات.");
-      return;
-    }
-    window.Telegram.Login.open();
+    const returnUrl = encodeURIComponent(window.location.origin);
+    window.location.assign(`/api/auth/telegram/start?returnUrl=${returnUrl}`);
   }
 
   return (
-    <>
-      <button className="telegram" disabled={loading} onClick={openLogin}>
-        {loading ? "جاري إنشاء الجلسة..." : "تسجيل الدخول عبر Telegram"}
-      </button>
-      {error && <small className="error">{error}</small>}
-    </>
+    <button className="telegram" disabled={loading} onClick={openLogin}>
+      {loading ? "جاري إنشاء الجلسة..." : "تسجيل الدخول عبر Telegram"}
+    </button>
   );
 }
 
