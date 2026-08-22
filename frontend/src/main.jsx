@@ -1454,6 +1454,9 @@ function MemberComplaints() {
   const [attachments, setAttachments] =
     useState([]);
 
+  const [attachmentError, setAttachmentError] =
+    useState("");
+
   const [items, setItems] =
     useState([]);
 
@@ -1548,6 +1551,29 @@ function MemberComplaints() {
     }
   }
 
+  function selectAttachments(event) {
+    const files = Array.from(event.target.files || []);
+    const allowedVideoExtensions = [".mp4", ".webm", ".mov", ".m4v", ".3gp", ".3gpp"];
+    const invalid = files.find((file) => {
+      const extension = `.${String(file.name || "").split(".").pop().toLowerCase()}`;
+      return !(file.type.startsWith("image/") || file.type.startsWith("video/") || allowedVideoExtensions.includes(extension));
+    });
+    if (invalid) {
+      setAttachments([]);
+      setAttachmentError("ارفع صورًا أو فيديوهات فقط: MP4 أو WebM أو MOV أو 3GP.");
+      event.target.value = "";
+      return;
+    }
+    if (files.some((file) => file.size > 100 * 1024 * 1024)) {
+      setAttachments([]);
+      setAttachmentError("حجم كل ملف يجب ألا يتجاوز 100MB.");
+      event.target.value = "";
+      return;
+    }
+    setAttachmentError(files.length > 4 ? "تم اختيار أول 4 ملفات فقط." : "");
+    setAttachments(files.slice(0, 4));
+  }
+
   return (
     <div className="page">
       <Title
@@ -1635,14 +1661,15 @@ function MemberComplaints() {
 
           <div className="upload">
             <b>إرفاق أدلة الشكوى</b>
-            <small>صور أو فيديوهات، حتى 4 ملفات وبحد أقصى 100MB للملف.</small>
+            <small>صور أو فيديوهات MP4 وWebM وMOV و3GP، حتى 4 ملفات وبحد أقصى 100MB للملف.</small>
             <input
               type="file"
-              accept="image/*,video/mp4,video/webm,video/quicktime"
+              accept="image/*,video/*,.mp4,.webm,.mov,.m4v,.3gp,.3gpp"
               multiple
-              onChange={(event) => setAttachments(Array.from(event.target.files || []).slice(0, 4))}
+              onChange={selectAttachments}
             />
             {attachments.length > 0 && <small>تم اختيار {attachments.length} ملف/ملفات.</small>}
+            {attachmentError && <small className="error">{attachmentError}</small>}
           </div>
 
           <button

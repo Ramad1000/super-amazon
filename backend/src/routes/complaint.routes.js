@@ -12,6 +12,14 @@ const router = express.Router();
 router.use(auth);
 
 const uploadDirectory = path.resolve(__dirname, "../../uploads");
+const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov", ".m4v", ".3gp", ".3gpp"]);
+const VIDEO_MIME_TYPES = { ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".m4v": "video/x-m4v", ".3gp": "video/3gpp", ".3gpp": "video/3gpp" };
+
+function normalizedMimeType(file) {
+  if (file.mimetype.startsWith("video/") || file.mimetype.startsWith("image/")) return file.mimetype;
+  return VIDEO_MIME_TYPES[path.extname(file.originalname || "").toLowerCase()] || file.mimetype;
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, callback) => callback(null, uploadDirectory),
   filename: (req, file, callback) => callback(null, `${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`),
@@ -20,8 +28,11 @@ const upload = multer({
   storage,
   limits: { fileSize: 100 * 1024 * 1024, files: 4 },
   fileFilter: (req, file, callback) => {
-    if (file.mimetype.startsWith("image/") || ["video/mp4", "video/webm", "video/quicktime"].includes(file.mimetype)) return callback(null, true);
-    const error = new Error("يمكن رفع الصور أو فيديو MP4/WebM فقط");
+    const extension = path.extname(file.originalname || "").toLowerCase();
+    const isImage = file.mimetype.startsWith("image/");
+    const isVideo = file.mimetype.startsWith("video/") || VIDEO_EXTENSIONS.has(extension);
+    if (isImage || isVideo) return callback(null, true);
+    const error = new Error("يمكن رفع الصور أو ملفات الفيديو MP4 وWebM وMOV و3GP فقط");
     error.statusCode = 400;
     return callback(error);
   },
@@ -87,12 +98,13 @@ router.post("/", upload.array("attachments", 4), async (req, res, next) => {
       [req.user.sub, targetUserId, targetType, body]
     );
     for (const file of req.files || []) {
-      const telegramFile = await uploadToTelegram(file, `Super Amazon • شكوى جديدة • ${targetType}`);
+      const mimeType = normalizedMimeType(file);
+      const telegramFile = await uploadToTelegram({ ...file, mimetype: mimeType }, `Super Amazon • شكوى جديدة • ${targetType}`);
       const hash = crypto.createHash("sha256").update(fs.readFileSync(file.path)).digest("hex");
       await query(
         `INSERT INTO complaint_files (complaint_id, original_name, stored_name, mime_type, file_size, storage_path, sha256_hash, telegram_file_id, telegram_chat_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [created.rows[0].id, file.originalname, file.filename, file.mimetype, file.size, file.path, hash, telegramFile.fileId, telegramFile.chatId]
+        [created.rows[0].id, file.originalname, file.filename, mimeType, file.size, file.path, hash, telegramFile.fileId, telegramFile.chatId]
       );
     }
     await query(
