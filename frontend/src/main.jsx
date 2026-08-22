@@ -316,6 +316,10 @@ function Side({
 
   if (role === "MEMBER") {
     items.push([
+      "application",
+      "طلب ADMIN أو BROKER",
+      "▣",
+    ], [
       "complaints",
       "الشكاوى",
       "⚑",
@@ -641,6 +645,11 @@ function Home({
     : role === "MEMBER"
     ? [
         [
+          "طلب ADMIN أو BROKER",
+          "قدّم طلب ترقية حسابك",
+          "application",
+        ],
+        [
           "تقديم شكوى",
           "اختر ADMIN أو BROKER",
           "complaints",
@@ -719,6 +728,9 @@ function Application({ user }) {
     useState(true);
 
   const [sending, setSending] =
+    useState(false);
+
+  const [editing, setEditing] =
     useState(false);
 
   const [accountType, setAccountType] =
@@ -853,14 +865,14 @@ function Application({ user }) {
     }
 
     const maxVideoSize =
-      500 * 1024 * 1024;
+      100 * 1024 * 1024;
 
     if (
       identityVideo.size >
       maxVideoSize
     ) {
       alert(
-        "حجم الفيديو يجب ألا يتجاوز 500 MB"
+        "حجم الفيديو يجب ألا يتجاوز 100 MB"
       );
       return;
     }
@@ -926,14 +938,17 @@ function Application({ user }) {
 
     try {
       const result = await api(
-        "/requests",
+        request && editing
+          ? `/requests/${request.id}/correct`
+          : "/requests",
         {
-          method: "POST",
+          method: request && editing ? "PATCH" : "POST",
           body: form,
         }
       );
 
       setRequest(result.request);
+      setEditing(false);
 
       alert(
         `تم إرسال الطلب بنجاح\nرقم الطلب: ${result.request.request_number}`
@@ -957,7 +972,7 @@ function Application({ user }) {
     );
   }
 
-  if (request) {
+  if (request && !editing) {
     let statusText =
       request.status;
 
@@ -1076,6 +1091,14 @@ function Application({ user }) {
               يرجى تعديل البيانات
               أو الملفات المطلوبة
               حسب ملاحظة الإدارة.
+              <br />
+              <button
+                className="primary"
+                style={{ marginTop: "14px" }}
+                onClick={() => setEditing(true)}
+              >
+                تعديل الطلب وإعادة إرساله
+              </button>
             </div>
           )}
 
@@ -1125,6 +1148,11 @@ function Application({ user }) {
       />
 
       <section className="panel">
+        {editing && (
+          <div className="upload">
+            أعد إدخال البيانات وارفع الملفات الأربعة من جديد، ثم أرسل التصحيحات.
+          </div>
+        )}
         <h3>
           نوع الحساب المطلوب
         </h3>

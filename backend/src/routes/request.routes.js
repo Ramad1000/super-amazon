@@ -3,7 +3,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const { auth } = require("../middleware/auth");
-const { createRequest, getMyRequest } = require("../services/request.service");
+const { createRequest, correctRequest, getMyRequest } = require("../services/request.service");
 
 const router = express.Router();
 const directory = path.resolve(__dirname, "../../uploads");
@@ -67,6 +67,32 @@ router.post("/", auth, fields, async (req, res, next) => {
     res.status(201).json({ success: true, request });
   } catch (error) {
     next(error);
+  }
+});
+
+router.patch("/:id/correct", auth, fields, async (req, res, next) => {
+  try {
+    const body = req.body;
+    const request = await correctRequest({
+      userId: req.user.sub,
+      requestId: req.params.id,
+      accountType: body.accountType,
+      fullName: body.fullName,
+      fatherPhone: body.fatherPhone,
+      nationalId: body.nationalId,
+      latitude: Number(body.latitude),
+      longitude: Number(body.longitude),
+      locationAccuracy: body.locationAccuracy,
+      files: {
+        ID_FRONT: one(req.files, "idFront"),
+        ID_BACK: one(req.files, "idBack"),
+        FACE_PHOTO: one(req.files, "facePhoto"),
+        IDENTITY_VIDEO: one(req.files, "identityVideo"),
+      },
+    });
+    return res.json({ success: true, request });
+  } catch (error) {
+    return next(error);
   }
 });
 

@@ -178,20 +178,6 @@ async function createRequest({
       saved.push(file.path);
     }
 
-    // تغيير حالة المستخدم إلى PENDING
-    await c.query(
-      `
-      UPDATE users
-      SET
-        account_type = $1::account_type,
-        status = 'PENDING'::user_status,
-        is_verified = false,
-        updated_at = NOW()
-      WHERE id = $2
-      `,
-      [accountType, userId]
-    );
-
     // إشعار المستخدم
     await c.query(
       `
@@ -266,6 +252,85 @@ async function createRequest({
   }
 }
 
+async function correctRequest({
+  userId,
+  requestId,
+  accountType,
+  fullName,
+  fatherPhone,
+  nationalId,
+  latitude,
+  longitude,
+  locationAccuracy,
+  files,
+}) {
+  if (!fullName?.trim() || !fatherPhone?.trim() || !nationalId?.trim()) {
+    throw validationError("أكمل الاسم ورقم الهاتف ورقم المستمسك");
+  }
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    throw validationError("يجب تحديد موقع جغرافي صالح");
+  }
+  if (!['ADMIN', 'BROKER'].includes(accountType)) {
+    throw validationError("نوع الطلب يجب أن يكون ADMIN أو BROKER");
+  }
+  for (const type of REQUIRED) {
+    if (!files[type]) throw validationError("ارفع الملف المطلوب: " + type);
+  }
+
+  const c = await pool.connect();
+  const saved = [];
+  try {
+    await c.query("BEGIN");
+    const existing = await c.query(
+      "SELECT id, status FROM requests WHERE id = $1 AND user_id = $2 FOR UPDATE",
+      [requestId, userId]
+    );
+    if (!existing.rows.length) throw validationError("الطلب غير موجود");
+    if (existing.rows[0].status !== "NEEDS_CORRECTION") {
+      throw validationError("لا يمكن تعديل هذا الطلب حاليًا");
+    }
+
+    const requestResult = await c.query(
+      `UPDATE requests SET applicant_type = $1::account_type, full_name = $2, father_phone = $3,
+       national_id = $4, latitude = $5, longitude = $6, location_accuracy = $7,
+       status = 'PENDING'::request_status, reviewed_by = NULL, review_note = NULL,
+       reviewed_at = NULL, submitted_at = NOW(), updated_at = NOW()
+       WHERE id = $8 RETURNING *`,
+      [accountType, fullName.trim(), fatherPhone.trim(), nationalId.trim(), latitude, longitude, locationAccuracy || null, requestId]
+    );
+    const request = requestResult.rows[0];
+    await c.query("DELETE FROM request_files WHERE request_id = $1", [requestId]);
+
+    for (const type of REQUIRED) {
+      const file = files[type];
+      const hash = crypto.createHash("sha256").update(fs.readFileSync(file.path)).digest("hex");
+      await c.query(
+        `INSERT INTO request_files (request_id, file_type, original_name, stored_name, mime_type, file_size, storage_path, sha256_hash)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [request.id, type, file.originalname, file.filename, file.mimetype, file.size, file.path, hash]
+      );
+      saved.push(file.path);
+    }
+    await c.query(
+      "INSERT INTO notifications (user_id, title, body) VALUES ($1, $2, $3)",
+      [userId, "تمت إعادة إرسال الطلب", "تم إرسال التصحيحات، والطلب الآن قيد المراجعة من الإدارة."]
+    );
+    await c.query(
+      `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
+       VALUES ($1, 'RESUBMIT_APPLICATION', 'REQUEST', $2, $3::jsonb)`,
+      [userId, request.id, JSON.stringify({ accountType, requestNumber: request.request_number })]
+    );
+    await c.query("COMMIT");
+    return request;
+  } catch (error) {
+    await c.query("ROLLBACK");
+    saved.forEach((filePath) => { try { fs.unlinkSync(filePath); } catch {} });
+    throw error;
+  } finally {
+    c.release();
+  }
+}
+
 async function getMyRequest(userId) {
   const result = await query(
     `
@@ -300,5 +365,6 @@ async function getMyRequest(userId) {
 
 module.exports = {
   createRequest,
+  correctRequest,
   getMyRequest
 };
