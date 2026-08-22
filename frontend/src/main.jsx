@@ -1722,166 +1722,56 @@ function OwnerComplaints() {
 }
 
 function Requests() {
-  const [data, setData] =
-    useState([]);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  useEffect(() => {
-    loadRequests();
-  }, []);
-
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [message, setMessage] = useState("");
   async function loadRequests() {
-    try {
-      const result = await api(
-        "/owner/requests"
-      );
-
-      setData(
-        result.requests || []
-      );
-    } catch (error) {
-      alert(error.message);
-    } finally {
-      setLoading(false);
-    }
+    try { const result = await api("/owner/requests"); setData(result.requests || []); }
+    catch (error) { setMessage(error.message); } finally { setLoading(false); }
   }
-
-  async function review(
-    id,
-    decision
-  ) {
-    const note = prompt(
-      decision ===
-        "NEEDS_CORRECTION"
-        ? "حدد النقص أو الخطأ:"
-        : "ملاحظة المراجعة:",
-      ""
-    );
-
+  useEffect(() => { loadRequests(); }, []);
+  useEffect(() => {
+    if (!selectedId) return setSelected(null);
+    setDetailsLoading(true); setMessage("");
+    api(`/owner/requests/${selectedId}`).then((result) => setSelected(result.request)).catch((error) => setMessage(error.message)).finally(() => setDetailsLoading(false));
+  }, [selectedId]);
+  async function review(id, decision) {
+    const note = prompt(decision === "NEEDS_CORRECTION" ? "حدد النقص أو الخطأ:" : "ملاحظة المراجعة (اختيارية):", "");
     if (note === null) return;
-
-    try {
-      await api(
-        `/owner/requests/${id}/review`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            decision,
-            note,
-          }),
-        }
-      );
-
-      await loadRequests();
-
-      alert(
-        "تم تحديث الطلب"
-      );
-    } catch (error) {
-      alert(error.message);
-    }
+    try { await api(`/owner/requests/${id}/review`, { method: "PATCH", body: JSON.stringify({ decision, note }) }); setMessage("تم تحديث قرار مراجعة الطلب."); await loadRequests(); const result = await api(`/owner/requests/${id}`); setSelected(result.request); }
+    catch (error) { setMessage(error.message); }
   }
+  return <div className="page"><Title t="طلبات التقديم" d="افتح كل طلب لمراجعة بياناته ومرفقاته بشكل مستقل." i="✓" />
+    {message && <p className="settings-saved">{message}</p>}
+    {!selectedId ? <section className="panel">{loading ? <p>جاري التحميل...</p> : data.length === 0 ? <p>لا توجد طلبات حاليًا.</p> : <div className="table"><div className="tr head"><span>الطلب</span><span>المتقدم</span><span>النوع</span><span>المراجعة</span></div>{data.map((item) => <div className="tr" key={item.id}><span>#{item.request_number}</span><span>{item.full_name}<br /><small>@{item.telegram_username || "—"}</small></span><span>{item.applicant_type}</span><span>{item.status}<br /><button className="secondary" onClick={() => setSelectedId(item.id)}>فتح الطلب</button></span></div>)}</div>}</section> : <RequestReview request={selected} loading={detailsLoading} onBack={() => setSelectedId("")} onReview={review} />}
+  </div>;
+}
 
-  return (
-    <div className="page">
-      <Title
-        t="طلبات التقديم"
-        d="مراجعة طلبات ADMIN وBROKER."
-        i="✓"
-      />
-
-      <section className="panel">
-        {loading ? (
-          <p>جاري التحميل...</p>
-        ) : (
-          <div className="table">
-            <div className="tr head">
-              <span>
-                الطلب
-              </span>
-
-              <span>
-                المتقدم
-              </span>
-
-              <span>
-                النوع
-              </span>
-
-              <span>
-                الحالة / الإجراء
-              </span>
-            </div>
-
-            {data.map((item) => (
-              <div
-                className="tr"
-                key={item.id}
-              >
-                <span>
-                  #{item.request_number}
-                </span>
-
-                <span>
-                  {item.full_name}
-                  <br />
-                  <small>
-                    @
-                    {item.telegram_username ||
-                      "—"}
-                  </small>
-                </span>
-
-                <span>
-                  {item.applicant_type}
-                </span>
-
-                <span>
-                  {item.status}
-                  <br />
-
-                  <button
-                    onClick={() =>
-                      review(
-                        item.id,
-                        "APPROVED"
-                      )
-                    }
-                  >
-                    موافقة
-                  </button>
-
-                  <button
-                    onClick={() =>
-                      review(
-                        item.id,
-                        "NEEDS_CORRECTION"
-                      )
-                    }
-                  >
-                    نقص/خطأ
-                  </button>
-
-                  <button
-                    onClick={() =>
-                      review(
-                        item.id,
-                        "REJECTED_FINAL"
-                      )
-                    }
-                  >
-                    رفض نهائي
-                  </button>
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
+function RequestReview({ request, loading, onBack, onReview }) {
+  const [previews, setPreviews] = useState({});
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    let alive = true; const urls = [];
+    async function loadPreviews() {
+      if (!request?.files?.length) return;
+      try {
+        const token = localStorage.getItem("sa_token");
+        const output = await Promise.all(request.files.map(async (file) => {
+          const response = await fetch(`${API}/owner/requests/${request.id}/files/${file.id}`, { headers: { Authorization: `Bearer ${token}` } });
+          if (!response.ok) throw new Error("تعذر تحميل أحد المرفقات");
+          const url = URL.createObjectURL(await response.blob()); urls.push(url); return [file.id, url];
+        }));
+        if (alive) setPreviews(Object.fromEntries(output));
+      } catch (error) { if (alive) setMessage(error.message); }
+    }
+    loadPreviews(); return () => { alive = false; urls.forEach((url) => URL.revokeObjectURL(url)); };
+  }, [request?.id]);
+  const labels = { ID_FRONT: "المستمسك الأمامي", ID_BACK: "المستمسك الخلفي", FACE_PHOTO: "الصورة الشخصية", IDENTITY_VIDEO: "فيديو التحقق" };
+  if (loading || !request) return <section className="panel"><p>جاري تحميل الطلب...</p></section>;
+  return <><button className="secondary" onClick={onBack}>← العودة إلى جميع الطلبات</button><section className="panel" style={{ marginTop: "15px" }}><h3>طلب #{request.request_number} • {request.applicant_type}</h3><Table rows={[["الاسم الكامل", request.full_name, "حالة الطلب", request.status],["رقم الهاتف", request.father_phone, "رقم المستمسك", request.national_id],["حساب Telegram", `@${request.telegram_username || "—"}`, "Telegram ID", request.telegram_id],["الموقع", `${Number(request.latitude).toFixed(5)}, ${Number(request.longitude).toFixed(5)}`, "دقة الموقع", request.location_accuracy ? `${request.location_accuracy} متر` : "—"],["تاريخ الإرسال", new Date(request.submitted_at).toLocaleString("ar-IQ"), "الحساب الحالي", request.account_type]]} /></section><section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والتحقق</h3>{message && <p className="error">{message}</p>}<div className="attachment-grid">{request.files.map((file) => <article className="attachment" key={file.id}><b>{labels[file.file_type] || file.file_type}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={labels[file.file_type]} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div></section><section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3>{request.status === "PENDING" ? <div className="inline-actions"><button className="primary" onClick={() => onReview(request.id, "APPROVED")}>موافقة وترقية الحساب</button><button className="secondary" onClick={() => onReview(request.id, "NEEDS_CORRECTION")}>طلب تصحيح</button><button className="secondary" onClick={() => onReview(request.id, "REJECTED_FINAL")}>رفض نهائي</button></div> : <p>هذا الطلب تمت مراجعته سابقًا: <b>{request.status}</b>{request.review_note ? ` — ${request.review_note}` : ""}</p>}</section></>;
 }
 
 function Users() {

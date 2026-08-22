@@ -1,4 +1,6 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 const { pool, query } = require("../db/database");
 const { auth, requireRoles } = require("../middleware/auth");
 
@@ -15,6 +17,40 @@ router.get("/requests", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
+});
+
+router.get("/requests/:id", async (req, res, next) => {
+  try {
+    const request = await query(
+      `SELECT r.*, u.telegram_id, u.telegram_id, u.telegram_username, u.telegram_name, u.account_type, u.status AS user_status
+       FROM requests r JOIN users u ON u.id = r.user_id WHERE r.id = $1`,
+      [req.params.id]
+    );
+    if (!request.rows.length) return res.status(404).json({ success: false, message: "الطلب غير موجود" });
+    const files = await query(
+      `SELECT id, file_type, original_name, mime_type, file_size, sha256_hash, created_at
+       FROM request_files WHERE request_id = $1 ORDER BY created_at ASC`,
+      [req.params.id]
+    );
+    return res.json({ success: true, request: { ...request.rows[0], files: files.rows } });
+  } catch (error) { return next(error); }
+});
+
+router.get("/requests/:requestId/files/:fileId", async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT f.original_name, f.mime_type, f.storage_path FROM request_files f
+       JOIN requests r ON r.id = f.request_id WHERE f.id = $1 AND r.id = $2`,
+      [req.params.fileId, req.params.requestId]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, message: "المرفق غير موجود" });
+    const file = result.rows[0];
+    const absolutePath = path.resolve(file.storage_path);
+    if (!fs.existsSync(absolutePath)) return res.status(404).json({ success: false, message: "الملف غير متاح على الخادم" });
+    res.type(file.mime_type);
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.original_name)}`);
+    return res.sendFile(absolutePath);
+  } catch (error) { return next(error); }
 });
 
 router.get("/dashboard", async (req, res, next) => {
