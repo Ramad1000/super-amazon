@@ -236,6 +236,8 @@ function App() {
           page={page}
           user={user}
           setPage={setPage}
+          dark={dark}
+          setDark={setDark}
         />
       </main>
     </div>
@@ -421,6 +423,8 @@ function Router({
   page,
   user,
   setPage,
+  dark,
+  setDark,
 }) {
   if (page === "home") {
     return (
@@ -520,6 +524,10 @@ function Router({
 
   if (page === "profile") {
     return <Profile user={user} />;
+  }
+
+  if (page === "settings") {
+    return <Settings dark={dark} setDark={setDark} />;
   }
 
   return (
@@ -1654,13 +1662,14 @@ function Notifications() {
   return (
     <div className="page">
       <Title t="الإشعارات" d="تابع آخر تحديثات حسابك وطلباتك." i="◉" />
-      <section className="panel">
+      <section className="notification-toolbar">
+        <div><b>{items.filter((item) => !item.is_read).length}</b><span>إشعارات غير مقروءة</span></div>
         <button className="secondary" onClick={markAllRead}>تحديد الكل كمقروء</button>
-        {loading ? <p>جاري التحميل...</p> : items.length === 0 ? <p>لا توجد إشعارات حاليًا.</p> : items.map((item) => (
-          <button className="notification-row" key={item.id} onClick={() => !item.is_read && markRead(item.id)}>
-            <b>{item.title}</b>
-            <span>{item.body}</span>
-            <small>{new Date(item.created_at).toLocaleString("ar-IQ")} {!item.is_read && "• جديد"}</small>
+      </section>
+      <section className="notification-list">
+        {loading ? <p>جاري التحميل...</p> : items.length === 0 ? <div className="empty-state"><b>◉</b><h3>لا توجد إشعارات</h3><p>ستظهر هنا تحديثات طلباتك وإعلانات المنصة.</p></div> : items.map((item) => (
+          <button className={`notification-card ${item.is_read ? "" : "unread"}`} key={item.id} onClick={() => !item.is_read && markRead(item.id)}>
+            <i>{item.is_read ? "✓" : "●"}</i><div><b>{item.title}</b><span>{item.body}</span><small>{new Date(item.created_at).toLocaleString("ar-IQ")}</small></div>
           </button>
         ))}
       </section>
@@ -2111,6 +2120,26 @@ function Profile({ user }) {
       </section>
     </div>
   );
+}
+
+function Settings({ dark, setDark }) {
+  const [compact, setCompact] = useState(localStorage.getItem("sa_compact") === "true");
+  const [message, setMessage] = useState("");
+  function toggleCompact() {
+    const value = !compact;
+    setCompact(value);
+    localStorage.setItem("sa_compact", String(value));
+    setMessage("تم حفظ الإعداد على هذا الجهاز.");
+  }
+  return <div className="page">
+    <Title t="الإعدادات" d="خصّص تجربة استخدامك للمنصة." i="⚙" />
+    <section className="settings-card">
+      <div className="setting-item"><div><b>الوضع الليلي</b><span>تبديل ألوان المنصة على هذا الجهاز.</span></div><button className={dark ? "toggle on" : "toggle"} onClick={() => { setDark(!dark); setMessage("تم تحديث المظهر."); }}><i /></button></div>
+      <div className="setting-item"><div><b>العرض المختصر</b><span>حفظ تفضيل الواجهة على هذا الجهاز.</span></div><button className={compact ? "toggle on" : "toggle"} onClick={toggleCompact}><i /></button></div>
+      <div className="setting-item static"><div><b>حماية الحساب</b><span>يتم تسجيل الدخول بواسطة هوية Telegram فقط.</span></div><strong>محمي</strong></div>
+    </section>
+    {message && <p className="settings-saved">✓ {message}</p>}
+  </div>;
 }
 
 function Basic({ title, icon }) {
