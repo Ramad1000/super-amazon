@@ -196,24 +196,65 @@ function verifyLegacyTelegramLogin(payload) {
   };
 }
 
-async function loginWithTelegram(payload, metadata = {}) {
+function verifyTelegramWebApp(initData) {
+  if (!TELEGRAM_BOT_TOKEN) {
+    const error = new Error("Telegram Web App is not configured");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const values = new URLSearchParams(String(initData || ""));
+  const receivedHash = values.get("hash");
+  const userJson = values.get("user");
+  const authDate = Number(values.get("auth_date"));
+  if (!receivedHash || !userJson || !Number.isInteger(authDate)) {
+    throw clientError("بيانات Telegram Mini App غير مكتملة");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (now - authDate > TELEGRAM_AUTH_MAX_AGE_SECONDS || authDate > now + 60) {
+    throw clientError("انتهت صلاحية جلسة Telegram");
+  }
+
+  const dataCheckString = [...values.entries()]
+    .filter(([key]) => key !== "hash")
+    .sort(([first], [second]) => first.localeCompare(second))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+  const secret = crypto.createHmac("sha256", "WebAppData").update(TELEGRAM_BOT_TOKEN).digest();
+  const expectedHash = crypto.createHmac("sha256", secret).update(dataCheckString).digest("hex");
+  const received = Buffer.from(receivedHash, "hex");
+  const expected = Buffer.from(expectedHash, "hex");
+  if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
+    throw clientError("تعذر التحقق من هوية Telegram Mini App");
+  }
+
+  let user;
+  try {
+    user = JSON.parse(userJson);
+  } catch {
+    throw clientError("بيانات حساب Telegram غير صالحة");
+  }
+  if (!user?.id) throw clientError("بيانات حساب Telegram غير مكتملة");
+  return {
+    telegramId: String(user.id),
+    telegramUsername: user.username || null,
+    telegramName: [user.first_name, user.last_name].filter(Boolean).join(" ") || null,
+  };
+}
+
+async function createSessionForTelegram(telegram, metadata = {}) {
   if (!JWT_SECRET) {
     const error = new Error("JWT is not configured");
     error.statusCode = 503;
     throw error;
   }
 
-  // Authentication verification may be asynchronous when Telegram returns an
-  // OpenID token. Await it as well for the legacy widget flow so validation
-  // errors reach the route error handler instead of becoming an unhandled
-  // rejected promise.
-  const telegram = await verifyTelegramLogin(payload);
   let result = await query(
     `SELECT id, telegram_id, telegram_username, telegram_name, account_type, role, status, is_verified
      FROM users WHERE telegram_id = $1 LIMIT 1`,
     [telegram.telegramId]
   );
-
   let user;
   if (result.rows.length) {
     user = result.rows[0];
@@ -232,13 +273,11 @@ async function loginWithTelegram(payload, metadata = {}) {
     );
     user = result.rows[0];
   }
-
   if (user.status === "SUSPENDED") {
     const error = new Error("هذا الحساب موقوف");
     error.statusCode = 403;
     throw error;
   }
-
   const session = await query(
     `INSERT INTO sessions (user_id, user_agent, ip_address) VALUES ($1, $2, $3) RETURNING id`,
     [user.id, metadata.userAgent || null, metadata.ipAddress || null]
@@ -249,8 +288,20 @@ async function loginWithTelegram(payload, metadata = {}) {
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
   );
-
   return { token, user };
+}
+
+async function loginWithTelegram(payload, metadata = {}) {
+  // Authentication verification may be asynchronous when Telegram returns an
+  // OpenID token. Await it as well for the legacy widget flow so validation
+  // errors reach the route error handler instead of becoming an unhandled
+  // rejected promise.
+  const telegram = await verifyTelegramLogin(payload);
+  return createSessionForTelegram(telegram, metadata);
+}
+
+async function loginWithTelegramWebApp(initData, metadata = {}) {
+  return createSessionForTelegram(verifyTelegramWebApp(initData), metadata);
 }
 
 async function getCurrentUser(userId) {
@@ -271,5 +322,6 @@ module.exports = {
   completeTelegramAuthorization,
   getCurrentUser,
   loginWithTelegram,
+  loginWithTelegramWebApp,
   logoutSession,
 };

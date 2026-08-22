@@ -74,6 +74,33 @@ function App() {
   const [authStatus, setAuthStatus] = useState("بانتظار تأكيد Telegram.");
 
   useEffect(() => {
+    const webApp = window.Telegram?.WebApp;
+    const initData = webApp?.initData;
+
+    if (!token && initData) {
+      webApp.ready();
+      webApp.expand();
+      setAuthenticating(true);
+      setAuthStatus("جاري التحقق من حساب Telegram...");
+      api("/auth/telegram/webapp", {
+        method: "POST",
+        body: JSON.stringify({ initData }),
+      })
+        .then((result) => {
+          localStorage.setItem("sa_token", result.token);
+          localStorage.setItem("sa_user", JSON.stringify(result.user));
+          setToken(result.token);
+          setUser(result.user);
+          setAuthStatus("تم تسجيل الدخول بنجاح.");
+        })
+        .catch((error) => {
+          setAuthError(error.message || "تعذر إكمال تسجيل Telegram");
+          setAuthStatus("تعذر إنشاء الجلسة.");
+        })
+        .finally(() => setAuthenticating(false));
+      return;
+    }
+
     const query = new URLSearchParams(window.location.search);
     const code = query.get("code");
     const state = query.get("state");

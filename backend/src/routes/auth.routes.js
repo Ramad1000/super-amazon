@@ -5,6 +5,7 @@ const {
   completeTelegramAuthorization,
   getCurrentUser,
   loginWithTelegram,
+  loginWithTelegramWebApp,
   logoutSession,
 } = require("../services/auth.service");
 
@@ -76,6 +77,18 @@ router.post("/telegram", async (req, res, next) => {
     res.json({ success: true, ...result });
   } catch (error) {
     next(error);
+  }
+});
+
+router.post("/telegram/webapp", async (req, res, next) => {
+  try {
+    const result = await loginWithTelegramWebApp(req.body?.initData, {
+      userAgent: req.get("user-agent"),
+      ipAddress: req.ip,
+    });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return next(error);
   }
 });
 
