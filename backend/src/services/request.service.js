@@ -66,7 +66,7 @@ async function createRequest({
 
     // التأكد من نوع الطلب
     if (!["ADMIN", "BROKER"].includes(accountType)) {
-      throw validationError("نوع الطلب يجب أن يكون ADMIN أو BROKER");
+      throw validationError("نوع الطلب يجب أن يكون ادمن أو وسيط");
     }
 
     // التأكد من وجود الملفات الأربعة
@@ -285,7 +285,7 @@ async function correctRequest({
     throw validationError("يجب تحديد موقع جغرافي صالح");
   }
   if (!['ADMIN', 'BROKER'].includes(accountType)) {
-    throw validationError("نوع الطلب يجب أن يكون ADMIN أو BROKER");
+    throw validationError("نوع الطلب يجب أن يكون ادمن أو وسيط");
   }
   for (const type of REQUIRED) {
     if (!files[type]) throw validationError("ارفع الملف المطلوب: " + type);

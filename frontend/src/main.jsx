@@ -8,11 +8,15 @@ const API =
 
 const meta = {
   MEMBER: ["عضو", "◉"],
-  ADMIN: ["ADMIN", "◆"],
+  ADMIN: ["ادمن", "◆"],
   BROKER: ["وسيط", "▣"],
   OWNER: ["OWNER", "♛"],
   OWNER_ASSISTANT: ["مساعد Owner", "◇"],
 };
+
+function accountLabel(value) {
+  return ({ ADMIN: "ادمن", BROKER: "وسيط", MEMBER: "عضو" })[value] || value || "—";
+}
 
 async function api(path, options = {}) {
   const token = localStorage.getItem("sa_token");
@@ -277,7 +281,7 @@ function Login({ login, error, loading, status }) {
         </h1>
 
         <p>
-          منصة موحدة للأعضاء والـ ADMIN والوسطاء
+          منصة موحدة للأعضاء والادمن والوسطاء
           بإدارة Owner مركزية وآمنة.
         </p>
 
@@ -291,7 +295,7 @@ function Login({ login, error, loading, status }) {
 
         <h2>ابدأ من Telegram</h2>
 
-        <p>يتم إنشاء حساب عضو بعد تأكيد هويتك، ثم يمكنك تقديم طلب ترقية إلى ADMIN أو BROKER.</p>
+        <p>يتم إنشاء حساب عضو بعد تأكيد هويتك، ثم يمكنك تقديم طلب ترقية إلى ادمن أو وسيط.</p>
 
         <TelegramLogin login={login} loading={loading} />
         <small className="auth-status">الحالة: {status}</small>
@@ -340,7 +344,7 @@ function Side({
   if (role === "MEMBER") {
     items.push([
       "application",
-      "طلب ADMIN أو BROKER",
+      "طلب ادمن أو وسيط",
       "▣",
     ], [
       "complaints",
@@ -696,13 +700,13 @@ function Home({
     : role === "MEMBER"
     ? [
         [
-          "طلب ADMIN أو BROKER",
+          "طلب ادمن أو وسيط",
           "قدّم طلب ترقية حسابك",
           "application",
         ],
         [
           "تقديم شكوى",
-          "اختر ADMIN أو BROKER",
+          "اختر ادمن أو وسيط",
           "complaints",
         ],
       ]
@@ -1235,7 +1239,7 @@ function Application({ user }) {
               setAccountType("ADMIN")
             }
           >
-            ADMIN
+            ادمن
           </button>
 
           <button
@@ -1248,7 +1252,7 @@ function Application({ user }) {
               setAccountType("BROKER")
             }
           >
-            BROKER
+            وسيط
           </button>
         </div>
 
@@ -1565,7 +1569,7 @@ function MemberComplaints() {
                     setTarget("");
                   }}
                 >
-                  {type}
+                  {accountLabel(type)}
                 </button>
               )
             )}
@@ -1816,7 +1820,7 @@ function Requests() {
   }
   return <div className="page"><Title t="طلبات التقديم" d="افتح كل طلب لمراجعة بياناته ومرفقاته بشكل مستقل." i="✓" />
     {message && <p className="settings-saved">{message}</p>}
-    {!selectedId ? <section className="panel">{loading ? <p>جاري التحميل...</p> : data.length === 0 ? <p>لا توجد طلبات حاليًا.</p> : <div className="table"><div className="tr head"><span>الطلب</span><span>المتقدم</span><span>النوع</span><span>المراجعة</span></div>{data.map((item) => <div className="tr" key={item.id}><span>#{item.request_number}</span><span>{item.full_name}<br /><small>@{item.telegram_username || "—"}</small></span><span>{item.applicant_type}</span><span>{item.status}<br /><button className="secondary" onClick={() => setSelectedId(item.id)}>فتح الطلب</button></span></div>)}</div>}</section> : <RequestReview request={selected} loading={detailsLoading} onBack={() => setSelectedId("")} onReview={review} />}
+    {!selectedId ? <section className="panel">{loading ? <p>جاري التحميل...</p> : data.length === 0 ? <p>لا توجد طلبات حاليًا.</p> : <div className="table"><div className="tr head"><span>الطلب</span><span>المتقدم</span><span>النوع</span><span>المراجعة</span></div>{data.map((item) => <div className="tr" key={item.id}><span>#{item.request_number}</span><span>{item.full_name}<br /><small>@{item.telegram_username || "—"}</small></span><span>{accountLabel(item.applicant_type)}</span><span>{item.status}<br /><button className="secondary" onClick={() => setSelectedId(item.id)}>فتح الطلب</button></span></div>)}</div>}</section> : <RequestReview request={selected} loading={detailsLoading} onBack={() => setSelectedId("")} onReview={review} />}
   </div>;
 }
 
@@ -1841,7 +1845,7 @@ function RequestReview({ request, loading, onBack, onReview }) {
   }, [request?.id]);
   const labels = { ID_FRONT: "المستمسك الأمامي", ID_BACK: "المستمسك الخلفي", FACE_PHOTO: "الصورة الشخصية", IDENTITY_VIDEO: "فيديو التحقق" };
   if (loading || !request) return <section className="panel"><p>جاري تحميل الطلب...</p></section>;
-  return <><button className="secondary" onClick={onBack}>← العودة إلى جميع الطلبات</button><section className="panel" style={{ marginTop: "15px" }}><h3>طلب #{request.request_number} • {request.applicant_type}</h3><Table rows={[["الاسم الكامل", request.full_name, "حالة الطلب", request.status],["رقم الهاتف", request.father_phone, "رقم الأب", request.national_id],["حساب Telegram", `@${request.telegram_username || "—"}`, "Telegram ID", request.telegram_id],["الموقع", `${Number(request.latitude).toFixed(5)}, ${Number(request.longitude).toFixed(5)}`, "دقة الموقع", request.location_accuracy ? `${request.location_accuracy} متر` : "—"],["تاريخ الإرسال", new Date(request.submitted_at).toLocaleString("ar-IQ"), "الحساب الحالي", request.account_type]]} /></section><section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والتحقق</h3>{message && <p className="error">{message}</p>}<div className="attachment-grid">{request.files.map((file) => <article className="attachment" key={file.id}><b>{labels[file.file_type] || file.file_type}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={labels[file.file_type]} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div></section><section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3>{request.status === "PENDING" ? <div className="inline-actions"><button className="primary" onClick={() => onReview(request.id, "APPROVED")}>موافقة وترقية الحساب</button><button className="secondary" onClick={() => onReview(request.id, "NEEDS_CORRECTION")}>طلب تصحيح</button><button className="secondary" onClick={() => onReview(request.id, "REJECTED_FINAL")}>رفض نهائي</button></div> : <p>هذا الطلب تمت مراجعته سابقًا: <b>{request.status}</b>{request.review_note ? ` — ${request.review_note}` : ""}</p>}</section></>;
+  return <><button className="secondary" onClick={onBack}>← العودة إلى جميع الطلبات</button><section className="panel" style={{ marginTop: "15px" }}><h3>طلب #{request.request_number} • {accountLabel(request.applicant_type)}</h3><Table rows={[["الاسم الكامل", request.full_name, "حالة الطلب", request.status],["رقم الهاتف", request.father_phone, "رقم الأب", request.national_id],["حساب Telegram", `@${request.telegram_username || "—"}`, "Telegram ID", request.telegram_id],["الموقع", `${Number(request.latitude).toFixed(5)}, ${Number(request.longitude).toFixed(5)}`, "دقة الموقع", request.location_accuracy ? `${request.location_accuracy} متر` : "—"],["تاريخ الإرسال", new Date(request.submitted_at).toLocaleString("ar-IQ"), "الحساب الحالي", accountLabel(request.account_type)]]} /></section><section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والتحقق</h3>{message && <p className="error">{message}</p>}<div className="attachment-grid">{request.files.map((file) => <article className="attachment" key={file.id}><b>{labels[file.file_type] || file.file_type}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={labels[file.file_type]} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div></section><section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3>{request.status === "PENDING" ? <div className="inline-actions"><button className="primary" onClick={() => onReview(request.id, "APPROVED")}>موافقة وترقية الحساب</button><button className="secondary" onClick={() => onReview(request.id, "NEEDS_CORRECTION")}>طلب تصحيح</button><button className="secondary" onClick={() => onReview(request.id, "REJECTED_FINAL")}>رفض نهائي</button></div> : <p>هذا الطلب تمت مراجعته سابقًا: <b>{request.status}</b>{request.review_note ? ` — ${request.review_note}` : ""}</p>}</section></>;
 }
 
 function Users() {
@@ -2086,7 +2090,7 @@ function OwnerReports() {
   return <div className="page"><Title t="تقارير المنصة" d="ملخص حيّ للحسابات والطلبات والشكاوى والمالية." i="▥" />
     {error && <p className="error">{error}</p>}
     {!report ? <section className="panel"><p>جاري إعداد التقرير...</p></section> : <>
-      <div className="stats"><div className="stat"><small>الأعضاء</small><strong>{count(report.users, "MEMBER")}</strong><span>حساب</span></div><div className="stat"><small>ADMIN</small><strong>{count(report.users, "ADMIN")}</strong><span>حساب</span></div><div className="stat"><small>الوسطاء</small><strong>{count(report.users, "BROKER")}</strong><span>حساب</span></div></div>
+      <div className="stats"><div className="stat"><small>الأعضاء</small><strong>{count(report.users, "MEMBER")}</strong><span>حساب</span></div><div className="stat"><small>ادمن</small><strong>{count(report.users, "ADMIN")}</strong><span>حساب</span></div><div className="stat"><small>الوسطاء</small><strong>{count(report.users, "BROKER")}</strong><span>حساب</span></div></div>
       <section className="panel"><h3>الطلبات والشكاوى</h3><Table rows={[["طلبات بانتظار المراجعة", count(report.requests, "PENDING"), "طلبات", "مفتوحة"],["طلبات معتمدة", count(report.requests, "APPROVED"), "طلبات", "مكتملة"],["شكاوى جديدة", count(report.complaints, "NEW"), "شكاوى", "تحتاج مراجعة"],["شكاوى محلولة", count(report.complaints, "RESOLVED"), "شكاوى", "مغلقة"]]} /></section>
       <section className="panel" style={{ marginTop: "18px" }}><h3>ملخص مالية الوسطاء</h3><Table rows={[["إجمالي الرفعات", money(report.finance.total) + " د.ع", "مالي", "مسجل"],["إجمالي المدفوع", money(report.finance.paid) + " د.ع", "مالي", "مستلم"],["إجمالي المتبقي", money(report.finance.total - report.finance.paid) + " د.ع", "مالي", "قيد التحصيل"]]} /></section>
       <p className="settings-saved">آخر تحديث: {new Date(report.generatedAt).toLocaleString("ar-IQ")}</p>
