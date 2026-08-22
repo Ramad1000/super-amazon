@@ -1,6 +1,7 @@
 const fs = require("fs");
 const crypto = require("crypto");
 const { pool, query } = require("../db/database");
+const { sendTelegramNotification, notifyRole } = require("./notification.service");
 
 const REQUIRED = [
   "ID_FRONT",
@@ -233,6 +234,10 @@ async function createRequest({
 
     await c.query("COMMIT");
 
+    await sendTelegramNotification(userId, "تم استلام طلبك", `تم استلام طلب التقديم الخاص بك كـ ${accountType}. الطلب الآن قيد المراجعة من الإدارة.`);
+    await notifyRole("OWNER", "طلب تقديم جديد", `تم استلام طلب #${request.request_number} من ${fullName} كـ ${accountType}.`);
+    await notifyRole("OWNER_ASSISTANT", "طلب تقديم جديد", `تم استلام طلب #${request.request_number} من ${fullName} كـ ${accountType}.`);
+
     return request;
 
   } catch (error) {
@@ -321,6 +326,9 @@ async function correctRequest({
       [userId, request.id, JSON.stringify({ accountType, requestNumber: request.request_number })]
     );
     await c.query("COMMIT");
+    await sendTelegramNotification(userId, "تمت إعادة إرسال الطلب", "تم إرسال التصحيحات، والطلب الآن قيد المراجعة من الإدارة.");
+    await notifyRole("OWNER", "تمت إعادة إرسال طلب", `الطلب #${request.request_number} بانتظار المراجعة بعد التصحيح.`);
+    await notifyRole("OWNER_ASSISTANT", "تمت إعادة إرسال طلب", `الطلب #${request.request_number} بانتظار المراجعة بعد التصحيح.`);
     return request;
   } catch (error) {
     await c.query("ROLLBACK");

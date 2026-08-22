@@ -5,6 +5,7 @@ const path = require("path");
 const multer = require("multer");
 const { query } = require("../db/database");
 const { auth } = require("../middleware/auth");
+const { notifyUser, notifyRole } = require("../services/notification.service");
 
 const router = express.Router();
 router.use(auth);
@@ -97,6 +98,9 @@ router.post("/", upload.array("attachments", 4), async (req, res, next) => {
        VALUES ($1, 'CREATE_COMPLAINT', 'COMPLAINT', $2, $3::jsonb)`,
       [req.user.sub, created.rows[0].id, JSON.stringify({ targetUserId, targetType })]
     );
+    await notifyUser(req.user.sub, "تم استلام الشكوى", "تم إرسال شكواك إلى الإدارة وسيتم إشعارك عند تحديث حالتها.");
+    await notifyRole("OWNER", "شكوى جديدة", `تم استلام شكوى جديدة ضد حساب ${targetType}.`);
+    await notifyRole("OWNER_ASSISTANT", "شكوى جديدة", `تم استلام شكوى جديدة ضد حساب ${targetType}.`);
     return res.status(201).json({ success: true, complaint: created.rows[0] });
   } catch (error) {
     return next(error);

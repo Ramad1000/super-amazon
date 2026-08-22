@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { pool, query } = require("../db/database");
 const { auth, requireRoles } = require("../middleware/auth");
+const { notifyUser } = require("../services/notification.service");
 
 const router = express.Router();
 router.use(auth, requireRoles("OWNER", "OWNER_ASSISTANT"));
@@ -191,7 +192,7 @@ router.post("/finance/lifts", async (req, res, next) => {
       `INSERT INTO broker_lifts (broker_id, total_amount, payment_method) VALUES ($1,$2,$3) RETURNING *`,
       [brokerId, amount, paymentMethod]
     );
-    await query("INSERT INTO notifications (user_id,title,body) VALUES ($1,$2,$3)", [brokerId, "تمت إضافة رفعة مالية", `تمت إضافة رفعة بقيمة ${amount} د.ع إلى حسابك.`]);
+    await notifyUser(brokerId, "تمت إضافة رفعة مالية", `تمت إضافة رفعة بقيمة ${amount} د.ع إلى حسابك.`);
     return res.status(201).json({ success: true, lift: result.rows[0] });
   } catch (error) { return next(error); }
 });
@@ -216,8 +217,8 @@ router.post("/finance/payments", async (req, res, next) => {
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [brokerId, liftId, paymentType, amount, req.user.sub, String(req.body?.note || "").trim() || null]
     );
-    await client.query("INSERT INTO notifications (user_id,title,body) VALUES ($1,$2,$3)", [brokerId, "تم تسجيل دفعة", `تم تسجيل دفعة بقيمة ${amount} د.ع.`]);
     await client.query("COMMIT");
+    await notifyUser(brokerId, "تم تسجيل دفعة", `تم تسجيل دفعة بقيمة ${amount} د.ع.`);
     return res.status(201).json({ success: true, payment: payment.rows[0] });
   } catch (error) { await client.query("ROLLBACK"); return next(error); } finally { client.release(); }
 });
@@ -238,11 +239,10 @@ router.patch("/users/:id/status", async (req, res, next) => {
     );
     if (!result.rows.length) return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
     const user = result.rows[0];
-    await query("INSERT INTO notifications (user_id, title, body) VALUES ($1,$2,$3)", [
-      user.id,
+    await notifyUser(user.id,
       status === "SUSPENDED" ? "تم إيقاف حسابك" : "تم تفعيل حسابك",
       status === "SUSPENDED" ? "تم إيقاف الحساب من الإدارة. تواصل مع الدعم عند الحاجة." : "تم تفعيل الحساب من الإدارة.",
-    ]);
+    );
     return res.json({ success: true, user });
   } catch (error) { return next(error); }
 });
@@ -288,13 +288,13 @@ router.patch("/requests/:id/review", async (req, res, next) => {
       : decision === "NEEDS_CORRECTION"
         ? `يرجى تصحيح الطلب ثم إعادة إرساله.${note ? ` ملاحظة: ${note}` : ""}`
         : (note || "تم رفض الطلب نهائيًا.");
-    await client.query("INSERT INTO notifications (user_id, title, body) VALUES ($1,$2,$3)", [request.user_id, title, body]);
     await client.query(
       `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
        VALUES ($1, 'REVIEW_APPLICATION', 'REQUEST', $2, $3::jsonb)`,
       [req.user.sub, request.id, JSON.stringify({ decision, note })]
     );
     await client.query("COMMIT");
+    await notifyUser(request.user_id, title, body);
     return res.json({ success: true, request: updated.rows[0] });
   } catch (error) {
     await client.query("ROLLBACK");
@@ -332,10 +332,7 @@ router.patch("/complaints/:id", async (req, res, next) => {
     );
     if (!result.rows.length) return res.status(404).json({ success: false, message: "الشكوى غير موجودة" });
     const complaint = result.rows[0];
-    await query(
-      "INSERT INTO notifications (user_id, title, body) VALUES ($1,$2,$3)",
-      [complaint.complainant_id, "تم تحديث الشكوى", note || `تم تغيير حالة الشكوى إلى ${status}.`]
-    );
+    await notifyUser(complaint.complainant_id, "تم تحديث الشكوى", note || `تم تغيير حالة الشكوى إلى ${status}.`);
     return res.json({ success: true, complaint });
   } catch (error) { return next(error); }
 });

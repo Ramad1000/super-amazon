@@ -1,6 +1,7 @@
 const express = require("express");
 const { query } = require("../db/database");
 const { auth, requireRoles } = require("../middleware/auth");
+const { notifyAudience } = require("../services/notification.service");
 
 const router = express.Router();
 router.use(auth);
@@ -11,7 +12,7 @@ router.get("/", async (req, res, next) => {
       `SELECT id, category, title, body, audience, important, published, created_at, updated_at
        FROM announcements WHERE published = true AND (audience = 'ALL' OR audience = $1)
        ORDER BY important DESC, created_at DESC`,
-      [req.user.role]
+      [req.user.accountType]
     );
     return res.json({ success: true, announcements: result.rows });
   } catch (error) { return next(error); }
@@ -40,6 +41,7 @@ router.post("/manage", async (req, res, next) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [category, title, body, audience, Boolean(req.body?.important), Boolean(req.body?.published), req.user.sub]
     );
+    if (result.rows[0].published) await notifyAudience(audience, title, body);
     return res.status(201).json({ success: true, announcement: result.rows[0] });
   } catch (error) { return next(error); }
 });
@@ -51,6 +53,7 @@ router.patch("/manage/:id", async (req, res, next) => {
       [Boolean(req.body?.published), req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ success: false, message: "الإعلان غير موجود" });
+    if (result.rows[0].published) await notifyAudience(result.rows[0].audience, result.rows[0].title, result.rows[0].body);
     return res.json({ success: true, announcement: result.rows[0] });
   } catch (error) { return next(error); }
 });

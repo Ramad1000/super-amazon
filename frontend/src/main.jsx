@@ -1632,6 +1632,7 @@ function MemberComplaints() {
 function Notifications() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [testMessage, setTestMessage] = useState("");
 
   async function loadNotifications() {
     try {
@@ -1660,13 +1661,20 @@ function Notifications() {
     } catch (error) { alert(error.message); }
   }
 
+  async function testTelegram() {
+    setTestMessage("جاري الإرسال...");
+    try { const result = await api("/notifications/test-telegram", { method: "POST" }); setTestMessage(result.message); }
+    catch (error) { setTestMessage(error.message); }
+  }
+
   return (
     <div className="page">
       <Title t="الإشعارات" d="تابع آخر تحديثات حسابك وطلباتك." i="◉" />
       <section className="notification-toolbar">
         <div><b>{items.filter((item) => !item.is_read).length}</b><span>إشعارات غير مقروءة</span></div>
-        <button className="secondary" onClick={markAllRead}>تحديد الكل كمقروء</button>
+        <div><button className="secondary" onClick={testTelegram}>اختبار Telegram</button> <button className="secondary" onClick={markAllRead}>تحديد الكل كمقروء</button></div>
       </section>
+      {testMessage && <p className="settings-saved">{testMessage}</p>}
       <section className="notification-list">
         {loading ? <p>جاري التحميل...</p> : items.length === 0 ? <div className="empty-state"><b>◉</b><h3>لا توجد إشعارات</h3><p>ستظهر هنا تحديثات طلباتك وإعلانات المنصة.</p></div> : items.map((item) => (
           <button className={`notification-card ${item.is_read ? "" : "unread"}`} key={item.id} onClick={() => !item.is_read && markRead(item.id)}>
