@@ -439,6 +439,50 @@ router.get("/complaints", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+router.get("/complaints/:id", async (req, res, next) => {
+  try {
+    const complaint = await query(
+      `SELECT c.*,
+        a.telegram_id AS complainant_telegram_id, a.telegram_name AS complainant_name,
+        a.telegram_username AS complainant_username, a.account_type AS complainant_account_type,
+        t.telegram_id AS target_telegram_id, t.telegram_name AS target_name,
+        t.telegram_username AS target_username, t.account_type AS target_account_type
+       FROM complaints c
+       JOIN users a ON a.id = c.complainant_id
+       JOIN users t ON t.id = c.target_user_id
+       WHERE c.id = $1`,
+      [req.params.id]
+    );
+    if (!complaint.rows.length) return res.status(404).json({ success: false, message: "الشكوى غير موجودة" });
+    const files = await query(
+      `SELECT id, original_name, mime_type, file_size, sha256_hash, created_at
+       FROM complaint_files WHERE complaint_id = $1 ORDER BY created_at ASC`,
+      [req.params.id]
+    );
+    return res.json({ success: true, complaint: { ...complaint.rows[0], files: files.rows } });
+  } catch (error) { return next(error); }
+});
+
+router.get("/complaints/:complaintId/files/:fileId", async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT f.original_name, f.mime_type, f.storage_path, f.telegram_file_id
+       FROM complaint_files f
+       JOIN complaints c ON c.id = f.complaint_id
+       WHERE f.id = $1 AND c.id = $2`,
+      [req.params.fileId, req.params.complaintId]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, message: "مرفق الشكوى غير موجود" });
+    const file = result.rows[0];
+    if (file.telegram_file_id) return streamFromTelegram(file.telegram_file_id, file.mime_type, res);
+    const absolutePath = path.resolve(file.storage_path);
+    if (!fs.existsSync(absolutePath)) return res.status(404).json({ success: false, message: "هذا المرفق غير متاح حاليًا." });
+    res.type(file.mime_type);
+    res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.original_name)}`);
+    return res.sendFile(absolutePath);
+  } catch (error) { return next(error); }
+});
+
 router.patch("/complaints/:id", async (req, res, next) => {
   const status = String(req.body?.status || "").toUpperCase();
   const note = String(req.body?.note || "").trim();

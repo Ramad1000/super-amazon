@@ -1768,12 +1768,16 @@ function Notifications() {
 function OwnerComplaints() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
   async function loadComplaints() {
     try {
       const result = await api("/owner/complaints");
       setItems(result.complaints || []);
-    } catch (error) { alert(error.message); } finally { setLoading(false); }
+    } catch (error) { setMessage(error.message); } finally { setLoading(false); }
   }
   useEffect(() => {
     loadComplaints();
@@ -1785,35 +1789,77 @@ function OwnerComplaints() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedId) return setSelected(null);
+    setDetailsLoading(true);
+    setMessage("");
+    api(`/owner/complaints/${selectedId}`)
+      .then((result) => setSelected(result.complaint))
+      .catch((error) => setMessage(error.message))
+      .finally(() => setDetailsLoading(false));
+  }, [selectedId]);
+
   async function review(item, status) {
     const note = prompt("ملاحظة الإدارة للمستخدم (اختياري):", item.owner_note || "");
     if (note === null) return;
     try {
       await api(`/owner/complaints/${item.id}`, { method: "PATCH", body: JSON.stringify({ status, note }) });
       await loadComplaints();
-    } catch (error) { alert(error.message); }
+      const result = await api(`/owner/complaints/${item.id}`);
+      setSelected(result.complaint);
+      setMessage("تم تحديث حالة الشكوى.");
+    } catch (error) { setMessage(error.message); }
   }
 
   return (
     <div className="page">
-      <Title t="إدارة الشكاوى" d="راجع الشكاوى وحدّث حالتها." i="⚑" />
-      <section className="panel">
-        {loading ? <p>جاري التحميل...</p> : items.length === 0 ? <p>لا توجد شكاوى.</p> : items.map((item) => (
-          <div className="complaint-row" key={item.id}>
-            <b>{item.target_type} • {item.status}</b>
-            <span>من: {item.complainant_name || "—"} | ضد: {item.target_name || "—"}</span>
-            <p>{item.body}</p>
-            {item.owner_note && <small>ملاحظة سابقة: {item.owner_note}</small>}
-            <div className="inline-actions">
-              <button onClick={() => review(item, "UNDER_REVIEW")}>قيد المراجعة</button>
-              <button onClick={() => review(item, "RESOLVED")}>حل الشكوى</button>
-              <button onClick={() => review(item, "REJECTED")}>رفض</button>
-            </div>
-          </div>
-        ))}
-      </section>
+      <Title t="إدارة الشكاوى" d="افتح كل شكوى لمراجعة بياناتها وأدلتها بشكل مستقل." i="⚑" />
+      {message && <p className="settings-saved">{message}</p>}
+      {!selectedId ? <section className="panel">
+        {loading ? <p>جاري التحميل...</p> : items.length === 0 ? <p>لا توجد شكاوى.</p> : <div className="table"><div className="tr head"><span>الشكوى</span><span>مقدم الشكوى</span><span>ضد</span><span>المراجعة</span></div>{items.map((item) => <div className="tr" key={item.id}><span>#{item.id.slice(0, 8)}<br /><small>{new Date(item.created_at).toLocaleString("ar-IQ")}</small></span><span>{item.complainant_name || "—"}<br /><small>{item.complainant_username ? `@${item.complainant_username}` : "بدون معرف"}</small></span><span>{item.target_name || "—"}<br /><small>{accountLabel(item.target_type)}</small></span><span>{item.status}<br /><button className="secondary" onClick={() => setSelectedId(item.id)}>فتح الشكوى</button></span></div>)}</div>}
+      </section> : <ComplaintReview complaint={selected} loading={detailsLoading} onBack={() => setSelectedId("")} onReview={review} />}
     </div>
   );
+}
+
+function ComplaintReview({ complaint, loading, onBack, onReview }) {
+  const [previews, setPreviews] = useState({});
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    const urls = [];
+    async function loadPreviews() {
+      if (!complaint?.files?.length) return;
+      try {
+        const token = localStorage.getItem("sa_token");
+        const output = await Promise.all(complaint.files.map(async (file) => {
+          const response = await fetch(`${API}/owner/complaints/${complaint.id}/files/${file.id}`, { headers: { Authorization: `Bearer ${token}` } });
+          if (!response.ok) throw new Error("تعذر تحميل أحد مرفقات الشكوى");
+          const url = URL.createObjectURL(await response.blob());
+          urls.push(url);
+          return [file.id, url];
+        }));
+        if (alive) setPreviews(Object.fromEntries(output));
+      } catch (loadError) { if (alive) setError(loadError.message); }
+    }
+    loadPreviews();
+    return () => { alive = false; urls.forEach((url) => URL.revokeObjectURL(url)); };
+  }, [complaint?.id]);
+
+  if (loading || !complaint) return <section className="panel"><p>جاري تحميل تفاصيل الشكوى...</p></section>;
+  const status = { NEW: "جديدة", UNDER_REVIEW: "قيد المراجعة", RESOLVED: "تم الحل", REJECTED: "مرفوضة" }[complaint.status] || complaint.status;
+  return <>
+    <button className="secondary" onClick={onBack}>← العودة إلى جميع الشكاوى</button>
+    <section className="panel" style={{ marginTop: "15px" }}><h3>شكوى #{complaint.id.slice(0, 8)} • {status}</h3><Table rows={[
+      ["مقدم الشكوى", complaint.complainant_name || "—", "نوع حسابه", accountLabel(complaint.complainant_account_type)],
+      ["حساب Telegram", complaint.complainant_username ? `@${complaint.complainant_username}` : "—", "Telegram ID", complaint.complainant_telegram_id || "—"],
+      ["المشكو عليه", complaint.target_name || "—", "نوع الحساب", accountLabel(complaint.target_type)],
+      ["حساب Telegram", complaint.target_username ? `@${complaint.target_username}` : "—", "Telegram ID", complaint.target_telegram_id || "—"],
+      ["تاريخ الإرسال", new Date(complaint.created_at).toLocaleString("ar-IQ"), "آخر تحديث", new Date(complaint.updated_at).toLocaleString("ar-IQ")],
+    ]} /><div style={{ marginTop: "18px" }}><h3>تفاصيل الشكوى</h3><p style={{ whiteSpace: "pre-wrap" }}>{complaint.body}</p></div>{complaint.owner_note && <div className="notice" style={{ marginTop: "15px" }}><b>ملاحظة المراجعة السابقة</b><p>{complaint.owner_note}</p></div>}</section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والأدلة</h3>{error && <p className="error">{error}</p>}{complaint.files.length === 0 ? <p>لم يتم إرفاق ملفات مع هذه الشكوى.</p> : <div className="attachment-grid">{complaint.files.map((file) => <article className="attachment" key={file.id}><b>{file.mime_type.startsWith("video/") ? "فيديو دليل" : "صورة دليل"}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={file.original_name} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div>}</section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3><div className="inline-actions"><button className="secondary" onClick={() => onReview(complaint, "UNDER_REVIEW")}>قيد المراجعة</button><button className="primary" onClick={() => onReview(complaint, "RESOLVED")}>حل الشكوى</button><button className="secondary" onClick={() => onReview(complaint, "REJECTED")}>رفض الشكوى</button></div></section>
+  </>;
 }
 
 function Requests() {
