@@ -226,7 +226,7 @@ function App() {
             <button className="menu-toggle" aria-label={sidebarOpen ? "تصغير القائمة" : "إظهار القائمة"} aria-expanded={sidebarOpen} onClick={() => setSidebarOpen((current) => !current)}>☰</button>
             <small>Super Amazon / لوحة التحكم</small>
             <h1>
-              مرحبًا، {user.telegram_name || "بك"} 👋
+              مرحبًا، <bdi className="unicode-text">{user.telegram_name || "بك"}</bdi> 👋
             </h1>
           </div>
 
@@ -1890,8 +1890,7 @@ function Users() {
                 key={user.id}
               >
                 <span>
-                  {user.telegram_name ||
-                    "—"}
+                  <bdi className="unicode-text">{user.telegram_name || "—"}</bdi>
                 </span>
 
                 <span>
@@ -2185,14 +2184,12 @@ function Profile({ user }) {
 
         <div>
           <h2>
-            {user.telegram_name ||
-              "المستخدم"}
+            <bdi className="unicode-text">{user.telegram_name || "المستخدم"}</bdi>
           </h2>
 
           <p>
             @
-            {user.telegram_username ||
-              "غير محدد"}
+            <bdi className="unicode-text">{user.telegram_username || "غير محدد"}</bdi>
           </p>
 
           <small>
