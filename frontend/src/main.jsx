@@ -302,13 +302,13 @@ function Login({ login, error, loading, status }) {
         {error && <p className="error">تعذر تسجيل الدخول: {error}</p>}
 
         <footer>
-          المطور{" "}
+          تواصل مع المالك{" "}
           <a
-            href="https://t.me/R_M_D"
+            href="https://t.me/f_f_f"
             target="_blank"
             rel="noreferrer"
           >
-            @R_M_D
+            @f_f_f
           </a>
         </footer>
       </section>
@@ -438,13 +438,13 @@ function Side({
 
       <div className="bottom">
         <a
-          href="https://t.me/R_M_D"
+          href="https://t.me/f_f_f"
           target="_blank"
           rel="noreferrer"
         >
-          ↗ تواصل مع المطور
+          ↗ تواصل مع المالك
           <br />
-          <small>@R_M_D</small>
+          <small>@f_f_f</small>
         </a>
 
         <button onClick={logout} title="تسجيل الخروج">
