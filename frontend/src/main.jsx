@@ -2011,98 +2011,23 @@ function Announcements({ role }) {
 }
 
 function Finance() {
-  return (
-    <div className="page">
-      <Title
-        t="المالية"
-        d="عرض وضعك المالي بشكل واضح."
-        i="₿"
-      />
-
-      <section className="finance">
-        <small>المتبقي</small>
-
-        <strong>
-          250,000 د.ع
-        </strong>
-
-        <span>
-          من إجمالي 750,000 د.ع
-        </span>
-
-        <div>
-          <i />
-        </div>
-      </section>
-
-      <div className="stats">
-        <div className="stat">
-          <small>
-            سعر الرفعة
-          </small>
-
-          <strong>
-            750,000
-          </strong>
-
-          <span>
-            د.ع
-          </span>
-        </div>
-
-        <div className="stat">
-          <small>
-            المدفوع
-          </small>
-
-          <strong>
-            500,000
-          </strong>
-
-          <span>
-            د.ع
-          </span>
-        </div>
-
-        <div className="stat">
-          <small>
-            التمويل الشهري
-          </small>
-
-          <strong>
-            750,000
-          </strong>
-
-          <span>
-            د.ع
-          </span>
-        </div>
-      </div>
-
-      <section className="panel">
-        <h3>
-          آخر الدفعات
-        </h3>
-
-        <Table
-          rows={[
-            [
-              "#PAY-120",
-              "رفعة",
-              "500,000",
-              "18/08/2026",
-            ],
-            [
-              "#PAY-098",
-              "تمويل",
-              "750,000",
-              "01/08/2026",
-            ],
-          ]}
-        />
-      </section>
+  const [data, setData] = useState({ summary: { total: 0, paid: 0, remaining: 0 }, payments: [] });
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api("/finance/me").then((result) => setData({ summary: result.summary, payments: result.payments || [] }))
+      .catch((error) => alert(error.message)).finally(() => setLoading(false));
+  }, []);
+  const money = (value) => Number(value || 0).toLocaleString("ar-IQ");
+  return <div className="page">
+    <Title t="المالية" d="عرض وضعك المالي بشكل واضح." i="₿" />
+    <section className="finance"><small>المتبقي</small><strong>{money(data.summary.remaining)} د.ع</strong><span>من إجمالي {money(data.summary.total)} د.ع</span><div><i /></div></section>
+    <div className="stats">
+      <div className="stat"><small>إجمالي الرفعات</small><strong>{money(data.summary.total)}</strong><span>د.ع</span></div>
+      <div className="stat"><small>المدفوع</small><strong>{money(data.summary.paid)}</strong><span>د.ع</span></div>
+      <div className="stat"><small>المتبقي</small><strong>{money(data.summary.remaining)}</strong><span>د.ع</span></div>
     </div>
-  );
+    <section className="panel"><h3>آخر الدفعات</h3>{loading ? <p>جاري التحميل...</p> : <Table rows={data.payments.length ? data.payments.map((payment) => [payment.payment_type, money(payment.amount) + " د.ع", new Date(payment.payment_date).toLocaleDateString("ar-IQ"), payment.note || "—"]) : [["لا توجد دفعات", "—", "—", "—"]]} />}</section>
+  </div>;
 }
 
 function Backup() {

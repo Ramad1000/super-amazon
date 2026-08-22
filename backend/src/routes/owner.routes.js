@@ -27,6 +27,62 @@ router.get("/users", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+router.get("/finance/brokers", async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT u.id, u.telegram_name, u.telegram_username,
+       COALESCE(SUM(l.total_amount),0) AS total, COALESCE(SUM(l.paid_amount),0) AS paid
+       FROM users u LEFT JOIN broker_lifts l ON l.broker_id = u.id
+       WHERE u.account_type = 'BROKER'::account_type
+       GROUP BY u.id ORDER BY u.telegram_name NULLS LAST`
+    );
+    return res.json({ success: true, brokers: result.rows });
+  } catch (error) { return next(error); }
+});
+
+router.post("/finance/lifts", async (req, res, next) => {
+  const brokerId = String(req.body?.brokerId || "");
+  const amount = Number(req.body?.amount);
+  const paymentMethod = String(req.body?.paymentMethod || "CASH");
+  if (!brokerId || !Number.isFinite(amount) || amount <= 0 || !["CASH", "INSTALLMENTS"].includes(paymentMethod)) {
+    return res.status(400).json({ success: false, message: "بيانات الرفعة غير صالحة" });
+  }
+  try {
+    const result = await query(
+      `INSERT INTO broker_lifts (broker_id, total_amount, payment_method) VALUES ($1,$2,$3) RETURNING *`,
+      [brokerId, amount, paymentMethod]
+    );
+    await query("INSERT INTO notifications (user_id,title,body) VALUES ($1,$2,$3)", [brokerId, "تمت إضافة رفعة مالية", `تمت إضافة رفعة بقيمة ${amount} د.ع إلى حسابك.`]);
+    return res.status(201).json({ success: true, lift: result.rows[0] });
+  } catch (error) { return next(error); }
+});
+
+router.post("/finance/payments", async (req, res, next) => {
+  const brokerId = String(req.body?.brokerId || "");
+  const liftId = req.body?.liftId || null;
+  const amount = Number(req.body?.amount);
+  const paymentType = String(req.body?.paymentType || "PAYMENT").slice(0, 30);
+  if (!brokerId || !Number.isFinite(amount) || amount <= 0) return res.status(400).json({ success: false, message: "بيانات الدفعة غير صالحة" });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (liftId) {
+      const lift = await client.query("SELECT * FROM broker_lifts WHERE id = $1 AND broker_id = $2 FOR UPDATE", [liftId, brokerId]);
+      if (!lift.rows.length) throw new Error("الرفعة غير موجودة");
+      if (Number(lift.rows[0].paid_amount) + amount > Number(lift.rows[0].total_amount)) throw new Error("الدفعة أكبر من المبلغ المتبقي");
+      await client.query("UPDATE broker_lifts SET paid_amount = paid_amount + $1 WHERE id = $2", [amount, liftId]);
+    }
+    const payment = await client.query(
+      `INSERT INTO broker_payments (broker_id,lift_id,payment_type,amount,recorded_by,note)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [brokerId, liftId, paymentType, amount, req.user.sub, String(req.body?.note || "").trim() || null]
+    );
+    await client.query("INSERT INTO notifications (user_id,title,body) VALUES ($1,$2,$3)", [brokerId, "تم تسجيل دفعة", `تم تسجيل دفعة بقيمة ${amount} د.ع.`]);
+    await client.query("COMMIT");
+    return res.status(201).json({ success: true, payment: payment.rows[0] });
+  } catch (error) { await client.query("ROLLBACK"); return next(error); } finally { client.release(); }
+});
+
 router.patch("/users/:id/status", async (req, res, next) => {
   const status = String(req.body?.status || "").toUpperCase();
   if (!["ACTIVE", "SUSPENDED"].includes(status)) {

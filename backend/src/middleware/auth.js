@@ -17,7 +17,7 @@ async function auth(req, res, next) {
     }
 
     const session = await query(
-      `SELECT s.id, u.id AS user_id, u.role, u.status
+      `SELECT s.id, u.id AS user_id, u.role, u.account_type, u.status
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.id = $1 AND s.user_id = $2 AND s.revoked_at IS NULL`,
       [payload.sid, payload.sub]
@@ -27,7 +27,7 @@ async function auth(req, res, next) {
     }
 
     await query("UPDATE sessions SET last_seen_at = NOW() WHERE id = $1", [payload.sid]);
-    req.user = { sub: payload.sub, sid: payload.sid, role: session.rows[0].role };
+    req.user = { sub: payload.sub, sid: payload.sid, role: session.rows[0].role, accountType: session.rows[0].account_type };
     return next();
   } catch (error) {
     return res.status(401).json({ success: false, message: "الجلسة غير صالحة أو منتهية" });
