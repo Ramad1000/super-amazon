@@ -1799,6 +1799,7 @@ function OwnerComplaints() {
   const [selected, setSelected] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
 
   async function loadComplaints() {
     try {
@@ -1912,9 +1913,14 @@ function Requests() {
     try { await api(`/owner/requests/${id}/review`, { method: "PATCH", body: JSON.stringify({ decision, note }) }); setMessage("تم تحديث قرار مراجعة الطلب."); await loadRequests(); const result = await api(`/owner/requests/${id}`); setSelected(result.request); }
     catch (error) { setMessage(error.message); }
   }
+  const searchTerm = search.trim().toLocaleLowerCase();
+  const filteredRequests = data.filter((item) => !searchTerm || [
+    item.request_number, item.full_name, item.father_phone, item.national_id,
+    item.telegram_username, item.telegram_id, item.applicant_type, accountLabel(item.applicant_type), item.status,
+  ].some((value) => String(value || "").toLocaleLowerCase().includes(searchTerm)));
   return <div className="page"><Title t="طلبات التقديم" d="افتح كل طلب لمراجعة بياناته ومرفقاته بشكل مستقل." i="✓" />
     {message && <p className="settings-saved">{message}</p>}
-    {!selectedId ? <section className="panel">{loading ? <p>جاري التحميل...</p> : data.length === 0 ? <p>لا توجد طلبات حاليًا.</p> : <div className="table"><div className="tr head"><span>الطلب</span><span>المتقدم</span><span>النوع</span><span>المراجعة</span></div>{data.map((item) => <div className="tr" key={item.id}><span>#{item.request_number}</span><span>{item.full_name}<br /><small>@{item.telegram_username || "—"}</small></span><span>{accountLabel(item.applicant_type)}</span><span>{item.status}<br /><button className="secondary" onClick={() => setSelectedId(item.id)}>فتح الطلب</button></span></div>)}</div>}</section> : <RequestReview request={selected} loading={detailsLoading} onBack={() => setSelectedId("")} onReview={review} />}
+    {!selectedId ? <section className="panel"><label>البحث في الطلبات</label><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="رقم الطلب، الاسم، رقم الهاتف، رقم الأب أو Telegram" /><small>{searchTerm ? `${filteredRequests.length} نتيجة مطابقة` : `${data.length} طلب`}</small>{loading ? <p>جاري التحميل...</p> : filteredRequests.length === 0 ? <p>لا توجد طلبات مطابقة للبحث.</p> : <div className="table"><div className="tr head"><span>الطلب</span><span>المتقدم</span><span>النوع</span><span>المراجعة</span></div>{filteredRequests.map((item) => <div className="tr" key={item.id}><span>#{item.request_number}</span><span>{item.full_name}<br /><small>@{item.telegram_username || "—"}</small></span><span>{accountLabel(item.applicant_type)}</span><span>{item.status}<br /><button className="secondary" onClick={() => setSelectedId(item.id)}>فتح الطلب</button></span></div>)}</div>}</section> : <RequestReview request={selected} loading={detailsLoading} onBack={() => setSelectedId("")} onReview={review} />}
   </div>;
 }
 
@@ -1946,6 +1952,9 @@ function Users() {
   const [data, setData] =
     useState([]);
 
+  const [search, setSearch] =
+    useState("");
+
   const [loading, setLoading] =
     useState(true);
 
@@ -1962,6 +1971,12 @@ function Users() {
       );
   }, []);
 
+  const searchTerm = search.trim().toLocaleLowerCase();
+  const filteredUsers = data.filter((user) => !searchTerm || [
+    user.telegram_name, user.telegram_username, user.telegram_id,
+    user.account_type, accountLabel(user.account_type), user.status,
+  ].some((value) => String(value || "").toLocaleLowerCase().includes(searchTerm)));
+
   return (
     <div className="page">
       <Title
@@ -1971,6 +1986,13 @@ function Users() {
       />
 
       <section className="panel">
+        <label>البحث عن مستخدم</label>
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="الاسم، يوزر Telegram، Telegram ID أو نوع الحساب"
+        />
+        <small>{searchTerm ? `${filteredUsers.length} نتيجة مطابقة` : `${data.length} مستخدم`}</small>
         {loading ? (
           <p>جاري التحميل...</p>
         ) : (
@@ -1982,7 +2004,7 @@ function Users() {
               <span>الحالة</span>
             </div>
 
-            {data.map((user) => (
+            {filteredUsers.map((user) => (
               <div
                 className="tr"
                 key={user.id}
