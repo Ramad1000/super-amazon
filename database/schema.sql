@@ -9,6 +9,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_active_request_per_user ON requests(user_i
 CREATE TABLE IF NOT EXISTS request_files(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),request_id uuid NOT NULL REFERENCES requests(id) ON DELETE CASCADE,file_type varchar(50) NOT NULL,original_name text NOT NULL,stored_name text NOT NULL,mime_type varchar(150) NOT NULL,file_size bigint NOT NULL,storage_path text NOT NULL,sha256_hash char(64) NOT NULL,telegram_file_id text,telegram_chat_id text,status varchar(30) NOT NULL DEFAULT 'ACTIVE',created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS complaints(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),complainant_id uuid NOT NULL REFERENCES users(id),target_user_id uuid NOT NULL REFERENCES users(id),target_type account_type NOT NULL,body text NOT NULL,status varchar(40) NOT NULL DEFAULT 'NEW',owner_note text,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS complaint_files(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),complaint_id uuid NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,original_name text NOT NULL,stored_name text NOT NULL,mime_type varchar(150) NOT NULL,file_size bigint NOT NULL,storage_path text NOT NULL,sha256_hash char(64) NOT NULL,telegram_file_id text,telegram_chat_id text,created_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE complaints ADD COLUMN IF NOT EXISTS assigned_to uuid REFERENCES users(id);
+ALTER TABLE complaints ADD COLUMN IF NOT EXISTS due_at timestamptz;
+CREATE TABLE IF NOT EXISTS complaint_messages(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),complaint_id uuid NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,sender_id uuid NOT NULL REFERENCES users(id),body text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS complaint_messages_complaint_created_idx ON complaint_messages(complaint_id, created_at);
 ALTER TABLE request_files ADD COLUMN IF NOT EXISTS telegram_file_id text;
 ALTER TABLE request_files ADD COLUMN IF NOT EXISTS telegram_chat_id text;
 ALTER TABLE complaint_files ADD COLUMN IF NOT EXISTS telegram_file_id text;

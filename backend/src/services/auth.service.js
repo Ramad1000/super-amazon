@@ -288,7 +288,8 @@ async function createSessionForTelegram(telegram, metadata = {}) {
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
   );
-  return { token, user };
+  const currentUser = await getCurrentUser(user.id);
+  return { token, user: currentUser || user };
 }
 
 async function loginWithTelegram(payload, metadata = {}) {
@@ -310,7 +311,18 @@ async function getCurrentUser(userId) {
      FROM users WHERE id = $1 LIMIT 1`,
     [userId]
   );
-  return result.rows[0] || null;
+  const user = result.rows[0] || null;
+  if (!user) return null;
+  if (user.role === "OWNER_ASSISTANT") {
+    const permissions = await query(
+      "SELECT permission FROM assistant_permissions WHERE assistant_id = $1 ORDER BY permission",
+      [userId]
+    );
+    user.permissions = permissions.rows.map((item) => item.permission);
+  } else {
+    user.permissions = [];
+  }
+  return user;
 }
 
 async function logoutSession(sessionId) {

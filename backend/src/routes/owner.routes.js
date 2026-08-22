@@ -11,19 +11,58 @@ const { streamFromTelegram, configured: telegramStorageConfigured } = require(".
 const router = express.Router();
 router.use(auth, requireRoles("OWNER", "OWNER_ASSISTANT"));
 
-router.get("/requests", async (req, res, next) => {
+// Owner assistants never inherit the full Owner panel. Each protected section
+// checks the exact permission assigned from the Owner dashboard.
+function requireOwnerPermission(permission) {
+  return async (req, res, next) => {
+    if (req.user.role === "OWNER") return next();
+    try {
+      const allowed = await query(
+        "SELECT 1 FROM assistant_permissions WHERE assistant_id = $1 AND permission = $2",
+        [req.user.sub, permission]
+      );
+      if (!allowed.rows.length) {
+        return res.status(403).json({ success: false, message: "ليس لديك صلاحية الوصول إلى هذا القسم" });
+      }
+      return next();
+    } catch (error) {
+      return next(error);
+    }
+  };
+}
+
+router.get("/requests", requireOwnerPermission("REQUESTS"), async (req, res, next) => {
   try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(10, Number.parseInt(req.query.limit, 10) || 25));
+    const search = String(req.query.search || "").trim();
+    const status = String(req.query.status || "").trim().toUpperCase();
+    const filters = [];
+    const values = [];
+    if (search) {
+      values.push(`%${search}%`);
+      filters.push(`(r.full_name ILIKE $${values.length} OR r.father_phone ILIKE $${values.length} OR r.national_id ILIKE $${values.length} OR CAST(r.request_number AS text) ILIKE $${values.length} OR u.telegram_id ILIKE $${values.length} OR u.telegram_username ILIKE $${values.length} OR u.telegram_name ILIKE $${values.length})`);
+    }
+    if (["PENDING", "NEEDS_CORRECTION", "APPROVED", "REJECTED_FINAL"].includes(status)) {
+      values.push(status);
+      filters.push(`r.status = $${values.length}::request_status`);
+    }
+    const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+    const count = await query(`SELECT COUNT(*)::int AS total FROM requests r JOIN users u ON u.id = r.user_id ${where}`, values);
+    values.push(limit, (page - 1) * limit);
     const result = await query(
       `SELECT r.*, u.telegram_id, u.telegram_username, u.telegram_name, u.account_type, u.status AS user_status
-       FROM requests r JOIN users u ON u.id = r.user_id ORDER BY r.submitted_at DESC`
+       FROM requests r JOIN users u ON u.id = r.user_id ${where}
+       ORDER BY r.submitted_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values
     );
-    return res.json({ success: true, requests: result.rows });
+    return res.json({ success: true, requests: result.rows, pagination: { page, limit, total: count.rows[0].total, pages: Math.max(1, Math.ceil(count.rows[0].total / limit)) } });
   } catch (error) {
     return next(error);
   }
 });
 
-router.get("/requests/:id", async (req, res, next) => {
+router.get("/requests/:id", requireOwnerPermission("REQUESTS"), async (req, res, next) => {
   try {
     const request = await query(
       `SELECT r.*, u.telegram_id, u.telegram_id, u.telegram_username, u.telegram_name, u.account_type, u.status AS user_status
@@ -40,7 +79,7 @@ router.get("/requests/:id", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-router.get("/requests/:requestId/files/:fileId", async (req, res, next) => {
+router.get("/requests/:requestId/files/:fileId", requireOwnerPermission("REQUESTS"), async (req, res, next) => {
   try {
     const result = await query(
       `SELECT f.original_name, f.mime_type, f.storage_path, f.telegram_file_id FROM request_files f
@@ -76,23 +115,25 @@ router.get("/dashboard", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-router.get("/reports", async (req, res, next) => {
+router.get("/reports", requireOwnerPermission("REPORTS"), async (req, res, next) => {
   try {
+    const days = Math.min(365, Math.max(1, Number.parseInt(req.query.days, 10) || 30));
     const [users, requests, complaints, finance] = await Promise.all([
       query(`SELECT account_type, COUNT(*)::int AS total FROM users GROUP BY account_type`),
-      query(`SELECT status, COUNT(*)::int AS total FROM requests GROUP BY status`),
-      query(`SELECT status, COUNT(*)::int AS total FROM complaints GROUP BY status`),
-      query(`SELECT COALESCE(SUM(total_amount),0) AS total, COALESCE(SUM(paid_amount),0) AS paid FROM broker_lifts`),
+      query(`SELECT status, COUNT(*)::int AS total FROM requests WHERE created_at >= NOW() - ($1::int * INTERVAL '1 day') GROUP BY status`, [days]),
+      query(`SELECT status, COUNT(*)::int AS total FROM complaints WHERE created_at >= NOW() - ($1::int * INTERVAL '1 day') GROUP BY status`, [days]),
+      query(`SELECT COALESCE(SUM(total_amount),0) AS total, COALESCE(SUM(paid_amount),0) AS paid FROM broker_lifts WHERE created_at >= NOW() - ($1::int * INTERVAL '1 day')`, [days]),
     ]);
     return res.json({ success: true, report: {
       users: users.rows, requests: requests.rows, complaints: complaints.rows,
       finance: { total: Number(finance.rows[0].total), paid: Number(finance.rows[0].paid) },
+      periodDays: days,
       generatedAt: new Date().toISOString(),
     }});
   } catch (error) { return next(error); }
 });
 
-router.get("/assistants", async (req, res, next) => {
+router.get("/assistants", requireRoles("OWNER"), async (req, res, next) => {
   try {
     const result = await query(
       `SELECT u.id, u.telegram_name, u.telegram_username, u.account_type, u.status, u.created_at,
@@ -128,18 +169,31 @@ router.delete("/assistants/:id", requireRoles("OWNER"), async (req, res, next) =
   } catch (error) { return next(error); }
 });
 
-router.get("/audit", async (req, res, next) => {
+router.get("/audit", requireOwnerPermission("AUDIT"), async (req, res, next) => {
   try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(10, Number.parseInt(req.query.limit, 10) || 30));
+    const action = String(req.query.action || "").trim();
+    const search = String(req.query.search || "").trim();
+    const where = [];
+    const values = [];
+    if (action) { values.push(action); where.push(`a.action = $${values.length}`); }
+    if (search) { values.push(`%${search}%`); where.push(`(a.action ILIKE $${values.length} OR a.target_type ILIKE $${values.length} OR a.target_id ILIKE $${values.length} OR u.telegram_name ILIKE $${values.length} OR u.telegram_username ILIKE $${values.length})`); }
+    const filter = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const total = await query(`SELECT COUNT(*)::int AS total FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id ${filter}`, values);
+    values.push(limit, (page - 1) * limit);
     const result = await query(
       `SELECT a.id, a.action, a.target_type, a.target_id, a.details, a.created_at,
        u.telegram_name, u.telegram_username FROM audit_logs a
-       LEFT JOIN users u ON u.id = a.actor_user_id ORDER BY a.created_at DESC LIMIT 150`
+       LEFT JOIN users u ON u.id = a.actor_user_id ${filter}
+       ORDER BY a.created_at DESC LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values
     );
-    return res.json({ success: true, logs: result.rows });
+    return res.json({ success: true, logs: result.rows, pagination: { page, limit, total: total.rows[0].total, pages: Math.max(1, Math.ceil(total.rows[0].total / limit)) } });
   } catch (error) { return next(error); }
 });
 
-router.get("/system", async (req, res, next) => {
+router.get("/system", requireOwnerPermission("SYSTEM"), async (req, res, next) => {
   try {
     const started = Date.now();
     await query("SELECT 1");
@@ -151,7 +205,7 @@ router.get("/system", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-router.get("/backups", async (req, res, next) => {
+router.get("/backups", requireOwnerPermission("BACKUP"), async (req, res, next) => {
   try {
     const result = await query(
       `SELECT id, started_at, finished_at, status, file_size, sha256_hash, telegram_message_id, error_message
@@ -205,17 +259,20 @@ router.post("/backups", requireRoles("OWNER"), async (req, res, next) => {
       throw error;
     }
 
-    const [users, requests, requestFiles, complaints, complaintFiles, brokerLifts, brokerPayments, announcements, notifications, auditLogs] = await Promise.all([
+    const [users, requests, requestFiles, complaints, complaintFiles, complaintMessages, brokerLifts, brokerPayments, announcements, notifications, assistantPermissions, auditLogs, settingRows] = await Promise.all([
       query("SELECT id, telegram_id, telegram_username, telegram_name, account_type, role, status, is_verified, created_at, updated_at FROM users ORDER BY created_at"),
       query("SELECT * FROM requests ORDER BY created_at"),
       query("SELECT * FROM request_files ORDER BY created_at"),
       query("SELECT * FROM complaints ORDER BY created_at"),
       query("SELECT * FROM complaint_files ORDER BY created_at"),
+      query("SELECT * FROM complaint_messages ORDER BY created_at"),
       query("SELECT * FROM broker_lifts ORDER BY created_at"),
       query("SELECT * FROM broker_payments ORDER BY payment_date"),
       query("SELECT * FROM announcements ORDER BY created_at"),
       query("SELECT * FROM notifications ORDER BY created_at"),
+      query("SELECT * FROM assistant_permissions ORDER BY assistant_id, permission"),
       query("SELECT * FROM audit_logs ORDER BY created_at"),
+      query("SELECT * FROM system_settings ORDER BY key"),
     ]);
 
     const backup = Buffer.from(JSON.stringify({
@@ -223,9 +280,10 @@ router.post("/backups", requireRoles("OWNER"), async (req, res, next) => {
       generatedAt: new Date().toISOString(),
       data: {
         users: users.rows, requests: requests.rows, requestFiles: requestFiles.rows,
-        complaints: complaints.rows, complaintFiles: complaintFiles.rows,
+        complaints: complaints.rows, complaintFiles: complaintFiles.rows, complaintMessages: complaintMessages.rows,
         brokerLifts: brokerLifts.rows, brokerPayments: brokerPayments.rows,
-        announcements: announcements.rows, notifications: notifications.rows, auditLogs: auditLogs.rows,
+        announcements: announcements.rows, notifications: notifications.rows, assistantPermissions: assistantPermissions.rows,
+        auditLogs: auditLogs.rows, settings: settingRows.rows,
       },
     }));
     const compressed = zlib.gzipSync(backup, { level: 9 });
@@ -267,17 +325,30 @@ router.post("/backups", requireRoles("OWNER"), async (req, res, next) => {
   }
 });
 
-router.get("/users", async (req, res, next) => {
+router.get("/users", requireOwnerPermission("USERS"), async (req, res, next) => {
   try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(10, Number.parseInt(req.query.limit, 10) || 25));
+    const search = String(req.query.search || "").trim();
+    const values = [];
+    let where = "";
+    if (search) {
+      values.push(`%${search}%`);
+      where = `WHERE (telegram_id ILIKE $1 OR telegram_username ILIKE $1 OR telegram_name ILIKE $1 OR CAST(account_type AS text) ILIKE $1 OR CAST(role AS text) ILIKE $1)`;
+    }
+    const count = await query(`SELECT COUNT(*)::int AS total FROM users ${where}`, values);
+    values.push(limit, (page - 1) * limit);
     const result = await query(
       `SELECT id, telegram_id, telegram_username, telegram_name, account_type, role, status,
-       is_verified, created_at FROM users ORDER BY created_at DESC`
+       is_verified, created_at FROM users ${where} ORDER BY created_at DESC
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values
     );
-    return res.json({ success: true, users: result.rows });
+    return res.json({ success: true, users: result.rows, pagination: { page, limit, total: count.rows[0].total, pages: Math.max(1, Math.ceil(count.rows[0].total / limit)) } });
   } catch (error) { return next(error); }
 });
 
-router.get("/finance/brokers", async (req, res, next) => {
+router.get("/finance/brokers", requireOwnerPermission("FINANCE"), async (req, res, next) => {
   try {
     const result = await query(
       `SELECT u.id, u.telegram_name, u.telegram_username,
@@ -290,7 +361,7 @@ router.get("/finance/brokers", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-router.get("/finance/brokers/:id/lifts", async (req, res, next) => {
+router.get("/finance/brokers/:id/lifts", requireOwnerPermission("FINANCE"), async (req, res, next) => {
   try {
     const result = await query(
       `SELECT id, total_amount, paid_amount, payment_method, created_at
@@ -301,7 +372,23 @@ router.get("/finance/brokers/:id/lifts", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-router.post("/finance/lifts", async (req, res, next) => {
+router.get("/finance/payments", requireOwnerPermission("FINANCE"), async (req, res, next) => {
+  try {
+    const brokerId = String(req.query.brokerId || "").trim();
+    const values = [];
+    const filter = brokerId ? (values.push(brokerId), "WHERE p.broker_id = $1") : "";
+    const result = await query(
+      `SELECT p.*, u.telegram_name AS broker_name, u.telegram_username AS broker_username,
+       recorder.telegram_name AS recorded_by_name, l.total_amount AS lift_total
+       FROM broker_payments p JOIN users u ON u.id = p.broker_id
+       LEFT JOIN users recorder ON recorder.id = p.recorded_by LEFT JOIN broker_lifts l ON l.id = p.lift_id
+       ${filter} ORDER BY p.payment_date DESC LIMIT 150`, values
+    );
+    return res.json({ success: true, payments: result.rows });
+  } catch (error) { return next(error); }
+});
+
+router.post("/finance/lifts", requireOwnerPermission("FINANCE"), async (req, res, next) => {
   const brokerId = String(req.body?.brokerId || "");
   const amount = Number(req.body?.amount);
   const paymentMethod = String(req.body?.paymentMethod || "CASH");
@@ -313,12 +400,13 @@ router.post("/finance/lifts", async (req, res, next) => {
       `INSERT INTO broker_lifts (broker_id, total_amount, payment_method) VALUES ($1,$2,$3) RETURNING *`,
       [brokerId, amount, paymentMethod]
     );
+    await query(`INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details) VALUES ($1,'CREATE_BROKER_LIFT','BROKER_LIFT',$2,$3::jsonb)`, [req.user.sub, result.rows[0].id, JSON.stringify({ brokerId, amount, paymentMethod })]);
     await notifyUser(brokerId, "تمت إضافة رفعة مالية", `تمت إضافة رفعة بقيمة ${amount} د.ع إلى حسابك.`);
     return res.status(201).json({ success: true, lift: result.rows[0] });
   } catch (error) { return next(error); }
 });
 
-router.post("/finance/payments", async (req, res, next) => {
+router.post("/finance/payments", requireOwnerPermission("FINANCE"), async (req, res, next) => {
   const brokerId = String(req.body?.brokerId || "");
   const liftId = req.body?.liftId || null;
   const amount = Number(req.body?.amount);
@@ -339,12 +427,29 @@ router.post("/finance/payments", async (req, res, next) => {
       [brokerId, liftId, paymentType, amount, req.user.sub, String(req.body?.note || "").trim() || null]
     );
     await client.query("COMMIT");
+    await query(`INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details) VALUES ($1,'RECORD_BROKER_PAYMENT','BROKER_PAYMENT',$2,$3::jsonb)`, [req.user.sub, payment.rows[0].id, JSON.stringify({ brokerId, liftId, amount, paymentType })]);
     await notifyUser(brokerId, "تم تسجيل دفعة", `تم تسجيل دفعة بقيمة ${amount} د.ع.`);
     return res.status(201).json({ success: true, payment: payment.rows[0] });
   } catch (error) { await client.query("ROLLBACK"); return next(error); } finally { client.release(); }
 });
 
-router.patch("/users/:id/status", async (req, res, next) => {
+router.delete("/finance/payments/:id", requireOwnerPermission("FINANCE"), async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const payment = await client.query("SELECT * FROM broker_payments WHERE id = $1 FOR UPDATE", [req.params.id]);
+    if (!payment.rows.length) { await client.query("ROLLBACK"); return res.status(404).json({ success: false, message: "الدفعة غير موجودة" }); }
+    const item = payment.rows[0];
+    if (item.lift_id) await client.query("UPDATE broker_lifts SET paid_amount = GREATEST(0, paid_amount - $1) WHERE id = $2", [item.amount, item.lift_id]);
+    await client.query("DELETE FROM broker_payments WHERE id = $1", [item.id]);
+    await client.query("INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details) VALUES ($1,'REVERSE_BROKER_PAYMENT','BROKER_PAYMENT',$2,$3::jsonb)", [req.user.sub, item.id, JSON.stringify({ brokerId: item.broker_id, amount: item.amount })]);
+    await client.query("COMMIT");
+    await notifyUser(item.broker_id, "تم إلغاء دفعة", `تم إلغاء دفعة بقيمة ${item.amount} د.ع من السجل المالي.`);
+    return res.json({ success: true });
+  } catch (error) { await client.query("ROLLBACK"); return next(error); } finally { client.release(); }
+});
+
+router.patch("/users/:id/status", requireOwnerPermission("USERS"), async (req, res, next) => {
   const status = String(req.body?.status || "").toUpperCase();
   if (!["ACTIVE", "SUSPENDED"].includes(status)) {
     return res.status(400).json({ success: false, message: "الحالة غير صالحة" });
@@ -368,7 +473,7 @@ router.patch("/users/:id/status", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-router.patch("/requests/:id/review", async (req, res, next) => {
+router.patch("/requests/:id/review", requireOwnerPermission("REQUESTS"), async (req, res, next) => {
   const decision = req.body?.decision;
   const note = String(req.body?.note || "").trim();
   if (!["APPROVED", "NEEDS_CORRECTION", "REJECTED_FINAL"].includes(decision)) {
@@ -425,7 +530,7 @@ router.patch("/requests/:id/review", async (req, res, next) => {
   }
 });
 
-router.get("/complaints", async (req, res, next) => {
+router.get("/complaints", requireOwnerPermission("COMPLAINTS"), async (req, res, next) => {
   try {
     const result = await query(
       `SELECT c.*, a.telegram_name AS complainant_name, a.telegram_username AS complainant_username,
@@ -439,17 +544,19 @@ router.get("/complaints", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-router.get("/complaints/:id", async (req, res, next) => {
+router.get("/complaints/:id", requireOwnerPermission("COMPLAINTS"), async (req, res, next) => {
   try {
     const complaint = await query(
       `SELECT c.*,
         a.telegram_id AS complainant_telegram_id, a.telegram_name AS complainant_name,
         a.telegram_username AS complainant_username, a.account_type AS complainant_account_type,
         t.telegram_id AS target_telegram_id, t.telegram_name AS target_name,
-        t.telegram_username AS target_username, t.account_type AS target_account_type
+        t.telegram_username AS target_username, t.account_type AS target_account_type,
+        assignee.telegram_name AS assignee_name, assignee.telegram_username AS assignee_username
        FROM complaints c
        JOIN users a ON a.id = c.complainant_id
        JOIN users t ON t.id = c.target_user_id
+       LEFT JOIN users assignee ON assignee.id = c.assigned_to
        WHERE c.id = $1`,
       [req.params.id]
     );
@@ -459,11 +566,23 @@ router.get("/complaints/:id", async (req, res, next) => {
        FROM complaint_files WHERE complaint_id = $1 ORDER BY created_at ASC`,
       [req.params.id]
     );
-    return res.json({ success: true, complaint: { ...complaint.rows[0], files: files.rows } });
+    const messages = await query(
+      `SELECT m.id, m.body, m.created_at, u.telegram_name, u.telegram_username, u.role, u.account_type
+       FROM complaint_messages m JOIN users u ON u.id = m.sender_id
+       WHERE m.complaint_id = $1 ORDER BY m.created_at ASC`,
+      [req.params.id]
+    );
+    const assistants = req.user.role === "OWNER" ? await query(
+      `SELECT u.id, u.telegram_name, u.telegram_username FROM users u
+       JOIN assistant_permissions ap ON ap.assistant_id = u.id AND ap.permission = 'COMPLAINTS'
+       WHERE u.role = 'OWNER_ASSISTANT'::user_role AND u.status = 'ACTIVE'::user_status
+       GROUP BY u.id ORDER BY u.telegram_name NULLS LAST`,
+    ) : { rows: [] };
+    return res.json({ success: true, complaint: { ...complaint.rows[0], files: files.rows, messages: messages.rows, assistants: assistants.rows } });
   } catch (error) { return next(error); }
 });
 
-router.get("/complaints/:complaintId/files/:fileId", async (req, res, next) => {
+router.get("/complaints/:complaintId/files/:fileId", requireOwnerPermission("COMPLAINTS"), async (req, res, next) => {
   try {
     const result = await query(
       `SELECT f.original_name, f.mime_type, f.storage_path, f.telegram_file_id
@@ -483,7 +602,7 @@ router.get("/complaints/:complaintId/files/:fileId", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-router.patch("/complaints/:id", async (req, res, next) => {
+router.patch("/complaints/:id", requireOwnerPermission("COMPLAINTS"), async (req, res, next) => {
   const status = String(req.body?.status || "").toUpperCase();
   const note = String(req.body?.note || "").trim();
   if (!["UNDER_REVIEW", "RESOLVED", "REJECTED"].includes(status)) {
@@ -499,6 +618,42 @@ router.patch("/complaints/:id", async (req, res, next) => {
     const complaint = result.rows[0];
     await notifyUser(complaint.complainant_id, "تم تحديث الشكوى", note || `تم تغيير حالة الشكوى إلى ${status}.`);
     return res.json({ success: true, complaint });
+  } catch (error) { return next(error); }
+});
+
+router.post("/complaints/:id/messages", requireOwnerPermission("COMPLAINTS"), async (req, res, next) => {
+  const body = String(req.body?.body || "").trim();
+  if (body.length < 1 || body.length > 5000) return res.status(400).json({ success: false, message: "اكتب رسالة بين 1 و5000 حرف" });
+  try {
+    const complaint = await query("SELECT complainant_id FROM complaints WHERE id = $1", [req.params.id]);
+    if (!complaint.rows.length) return res.status(404).json({ success: false, message: "الشكوى غير موجودة" });
+    const result = await query(
+      "INSERT INTO complaint_messages (complaint_id, sender_id, body) VALUES ($1,$2,$3) RETURNING id, body, created_at",
+      [req.params.id, req.user.sub, body]
+    );
+    await query("UPDATE complaints SET status = 'UNDER_REVIEW', updated_at = NOW() WHERE id = $1", [req.params.id]);
+    await notifyUser(complaint.rows[0].complainant_id, "رسالة جديدة بخصوص شكواك", body);
+    await query(`INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details) VALUES ($1,'REPLY_TO_COMPLAINT','COMPLAINT',$2,$3::jsonb)`, [req.user.sub, req.params.id, JSON.stringify({ length: body.length })]);
+    return res.status(201).json({ success: true, message: result.rows[0] });
+  } catch (error) { return next(error); }
+});
+
+router.patch("/complaints/:id/assignment", requireRoles("OWNER"), async (req, res, next) => {
+  const assistantId = String(req.body?.assistantId || "").trim() || null;
+  try {
+    if (assistantId) {
+      const assistant = await query(
+        `SELECT u.id FROM users u JOIN assistant_permissions ap ON ap.assistant_id = u.id
+         WHERE u.id = $1 AND u.role = 'OWNER_ASSISTANT'::user_role AND ap.permission = 'COMPLAINTS'`,
+        [assistantId]
+      );
+      if (!assistant.rows.length) return res.status(400).json({ success: false, message: "المساعد المختار غير مخوّل بإدارة الشكاوى" });
+    }
+    const result = await query("UPDATE complaints SET assigned_to = $1, updated_at = NOW() WHERE id = $2 RETURNING *", [assistantId, req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ success: false, message: "الشكوى غير موجودة" });
+    if (assistantId) await notifyUser(assistantId, "تم إسناد شكوى إليك", "لديك شكوى جديدة تحتاج إلى مراجعة.");
+    await query(`INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details) VALUES ($1,'ASSIGN_COMPLAINT','COMPLAINT',$2,$3::jsonb)`, [req.user.sub, req.params.id, JSON.stringify({ assistantId })]);
+    return res.json({ success: true, complaint: result.rows[0] });
   } catch (error) { return next(error); }
 });
 

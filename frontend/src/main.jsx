@@ -216,6 +216,7 @@ function App() {
     <div className={`${dark ? "shell dark" : "shell"} ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}>
       <Side
         role={role}
+        user={user}
         page={page}
         setPage={setPage}
         logout={logout}
@@ -331,6 +332,7 @@ function TelegramLogin({ loading }) {
 
 function Side({
   role,
+  user,
   page,
   setPage,
   logout,
@@ -375,33 +377,21 @@ function Side({
     );
   }
 
-  if (
-    role === "OWNER" ||
-    role === "OWNER_ASSISTANT"
-  ) {
-    items.push(
-      ["users", "المستخدمون", "♟"],
-      ["requests", "الطلبات", "✓"],
-      ["complaints", "الشكاوى", "⚑"],
-      ["finance", "مالية الوسطاء", "₿"],
-      ["reports", "التقارير", "▥"],
-      [
-        "assistants",
-        "المساعدون والصلاحيات",
-        "◇",
-      ],
-      ["audit", "سجل العمليات", "◌"],
-      ["backup", "النسخ الاحتياطي", "↻"],
-      ["system", "حالة النظام", "▦"]
-    );
+  if (role === "OWNER" || role === "OWNER_ASSISTANT") {
+    const ownerItems = [
+      ["users", "المستخدمون", "♟", "USERS"], ["requests", "الطلبات", "✓", "REQUESTS"],
+      ["complaints", "الشكاوى", "⚑", "COMPLAINTS"], ["finance", "مالية الوسطاء", "₿", "FINANCE"],
+      ["reports", "التقارير", "▥", "REPORTS"], ["assistants", "المساعدون والصلاحيات", "◇", "ASSISTANTS"],
+      ["audit", "سجل العمليات", "◌", "AUDIT"], ["backup", "النسخ الاحتياطي", "↻", "BACKUP"],
+      ["system", "حالة النظام", "▦", "SYSTEM"],
+    ];
+    const permissions = user?.permissions || [];
+    ownerItems.filter((item) => role === "OWNER" || permissions.includes(item[3])).forEach((item) => items.push(item.slice(0, 3)));
   }
 
-  items.push(
-    ["notifications", "الإشعارات", "◉"],
-    ["rules", "القوانين والتوجيهات", "▤"],
-    ["profile", "ملفي الشخصي", "◎"],
-    ["settings", "الإعدادات", "⚙"]
-  );
+  items.push(["notifications", "الإشعارات", "◉"]);
+  if (role !== "OWNER_ASSISTANT" || (user?.permissions || []).includes("ANNOUNCEMENTS")) items.push(["rules", "القوانين والتوجيهات", "▤"]);
+  items.push(["profile", "ملفي الشخصي", "◎"], ["settings", "الإعدادات", "⚙"]);
 
   return (
     <aside className={open ? "sidebar expanded" : "sidebar collapsed"} aria-label="التنقل الرئيسي">
@@ -463,6 +453,10 @@ function Router({
   dark,
   setDark,
 }) {
+  const protectedPages = { users: "USERS", requests: "REQUESTS", complaints: "COMPLAINTS", finance: "FINANCE", reports: "REPORTS", assistants: "ASSISTANTS", audit: "AUDIT", backup: "BACKUP", system: "SYSTEM", rules: "ANNOUNCEMENTS" };
+  if (role === "OWNER_ASSISTANT" && protectedPages[page] && !(user.permissions || []).includes(protectedPages[page])) {
+    return <Basic title="وصول غير متاح" icon="⊘" />;
+  }
   if (page === "home") {
     return (
       <Home
@@ -807,6 +801,10 @@ function Application({ user }) {
 
   const [sending, setSending] =
     useState(false);
+
+  const [selectedId, setSelectedId] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [detailError, setDetailError] = useState("");
 
   const [editing, setEditing] =
     useState(false);
@@ -1433,7 +1431,7 @@ function Application({ user }) {
 
 function Complaints({ role }) {
   if (role === "OWNER" || role === "OWNER_ASSISTANT") {
-    return <OwnerComplaints />;
+    return <OwnerComplaints role={role} />;
   }
   return <MemberComplaints />;
 }
@@ -1500,6 +1498,12 @@ function MemberComplaints() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!selectedId) { setSelected(null); return; }
+    setDetailError("");
+    api(`/complaints/me/${selectedId}`).then((result) => setSelected(result.complaint)).catch((error) => setDetailError(error.message));
+  }, [selectedId]);
 
   const filteredTargets =
     targets.filter(
@@ -1582,7 +1586,7 @@ function MemberComplaints() {
         i="⚑"
       />
 
-      <div className="cols">
+      {selectedId ? <MemberComplaintDetail complaint={selected} error={detailError} onBack={() => setSelectedId("")} onReload={async () => { const result = await api(`/complaints/me/${selectedId}`); setSelected(result.complaint); await loadComplaints(); }} /> : <div className="cols">
         <section className="panel">
           <h3>
             تقديم شكوى جديدة
@@ -1723,16 +1727,21 @@ function MemberComplaints() {
                   )}
                 </small>
 
-                <p>
-                  {item.body}
-                </p>
+                <p>{item.body}</p>
+                <button className="secondary" onClick={() => setSelectedId(item.id)}>فتح التفاصيل والمراسلات</button>
               </div>
             ))
           )}
         </section>
-      </div>
+      </div>}
     </div>
   );
+}
+
+function MemberComplaintDetail({ complaint, error, onBack, onReload }) {
+  if (error) return <section className="panel"><p className="error">{error}</p><button className="secondary" onClick={onBack}>عودة</button></section>;
+  if (!complaint) return <section className="panel"><p>جاري تحميل الشكوى...</p></section>;
+  return <><button className="secondary" onClick={onBack}>← العودة إلى شكاواي</button><section className="panel" style={{ marginTop: "15px" }}><h3>تفاصيل الشكوى</h3><Table rows={[["ضد", complaint.target_name || "—", "نوع الحساب", accountLabel(complaint.target_type)], ["الحالة", complaint.status, "التاريخ", new Date(complaint.created_at).toLocaleString("ar-IQ")]]} /><p style={{ whiteSpace: "pre-wrap" }}>{complaint.body}</p>{complaint.owner_note && <div className="notice"><b>ملاحظة الإدارة</b><p>{complaint.owner_note}</p></div>}</section><ComplaintConversation complaint={complaint} onReload={onReload} /></>;
 }
 
 function Notifications() {
@@ -1792,7 +1801,7 @@ function Notifications() {
   );
 }
 
-function OwnerComplaints() {
+function OwnerComplaints({ role = "OWNER" }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState("");
@@ -1844,12 +1853,12 @@ function OwnerComplaints() {
       {message && <p className="settings-saved">{message}</p>}
       {!selectedId ? <section className="panel">
         {loading ? <p>جاري التحميل...</p> : items.length === 0 ? <p>لا توجد شكاوى.</p> : <div className="table"><div className="tr head"><span>الشكوى</span><span>مقدم الشكوى</span><span>ضد</span><span>المراجعة</span></div>{items.map((item) => <div className="tr" key={item.id}><span>#{item.id.slice(0, 8)}<br /><small>{new Date(item.created_at).toLocaleString("ar-IQ")}</small></span><span>{item.complainant_name || "—"}<br /><small>{item.complainant_username ? `@${item.complainant_username}` : "بدون معرف"}</small></span><span>{item.target_name || "—"}<br /><small>{accountLabel(item.target_type)}</small></span><span>{item.status}<br /><button className="secondary" onClick={() => setSelectedId(item.id)}>فتح الشكوى</button></span></div>)}</div>}
-      </section> : <ComplaintReview complaint={selected} loading={detailsLoading} onBack={() => setSelectedId("")} onReview={review} />}
+      </section> : <ComplaintReview complaint={selected} loading={detailsLoading} role={role} onBack={() => setSelectedId("")} onReview={review} onReload={async () => { const result = await api(`/owner/complaints/${selectedId}`); setSelected(result.complaint); await loadComplaints(); }} />}
     </div>
   );
 }
 
-function ComplaintReview({ complaint, loading, onBack, onReview }) {
+function ComplaintReview({ complaint, loading, role, onBack, onReview, onReload }) {
   const [previews, setPreviews] = useState({});
   const [error, setError] = useState("");
   useEffect(() => {
@@ -1885,8 +1894,25 @@ function ComplaintReview({ complaint, loading, onBack, onReview }) {
       ["تاريخ الإرسال", new Date(complaint.created_at).toLocaleString("ar-IQ"), "آخر تحديث", new Date(complaint.updated_at).toLocaleString("ar-IQ")],
     ]} /><div style={{ marginTop: "18px" }}><h3>تفاصيل الشكوى</h3><p style={{ whiteSpace: "pre-wrap" }}>{complaint.body}</p></div>{complaint.owner_note && <div className="notice" style={{ marginTop: "15px" }}><b>ملاحظة المراجعة السابقة</b><p>{complaint.owner_note}</p></div>}</section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والأدلة</h3>{error && <p className="error">{error}</p>}{complaint.files.length === 0 ? <p>لم يتم إرفاق ملفات مع هذه الشكوى.</p> : <div className="attachment-grid">{complaint.files.map((file) => <article className="attachment" key={file.id}><b>{file.mime_type.startsWith("video/") ? "فيديو دليل" : "صورة دليل"}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={file.original_name} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div>}</section>
+    {role === "OWNER" && <section className="panel" style={{ marginTop: "18px" }}><h3>إسناد المراجعة</h3><select value={complaint.assigned_to || ""} onChange={async (event) => { try { await api(`/owner/complaints/${complaint.id}/assignment`, { method: "PATCH", body: JSON.stringify({ assistantId: event.target.value || null }) }); onReload(); } catch (assignmentError) { setError(assignmentError.message); } }}><option value="">Owner يتابعها مباشرة</option>{(complaint.assistants || []).map((assistant) => <option key={assistant.id} value={assistant.id}>{assistant.telegram_name || assistant.telegram_username || "مساعد"}</option>)}</select>{complaint.assignee_name && <small>مُسندة إلى: {complaint.assignee_name}</small>}</section>}
+    <ComplaintConversation complaint={complaint} owner onReload={onReload} />
     <section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3><div className="inline-actions"><button className="secondary" onClick={() => onReview(complaint, "UNDER_REVIEW")}>قيد المراجعة</button><button className="primary" onClick={() => onReview(complaint, "RESOLVED")}>حل الشكوى</button><button className="secondary" onClick={() => onReview(complaint, "REJECTED")}>رفض الشكوى</button></div></section>
   </>;
+}
+
+function ComplaintConversation({ complaint, owner, onReload }) {
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState("");
+  async function send() {
+    if (!body.trim()) return;
+    setSending(true); setMessage("");
+    try {
+      await api(`${owner ? "/owner/complaints" : "/complaints"}/${complaint.id}/messages`, { method: "POST", body: JSON.stringify({ body: body.trim() }) });
+      setBody(""); await onReload();
+    } catch (error) { setMessage(error.message); } finally { setSending(false); }
+  }
+  return <section className="panel" style={{ marginTop: "18px" }}><h3>المراسلات والمتابعة</h3>{(complaint.messages || []).length ? <div className="notification-list">{complaint.messages.map((item) => <article className="notification-card" key={item.id}><i>{item.role === "OWNER" || item.role === "OWNER_ASSISTANT" ? "◈" : "◉"}</i><div><b>{item.telegram_name || item.telegram_username || "مستخدم"}</b><span style={{ whiteSpace: "pre-wrap" }}>{item.body}</span><small>{new Date(item.created_at).toLocaleString("ar-IQ")}</small></div></article>)}</div> : <p>لا توجد رسائل بعد.</p>}<textarea rows="3" value={body} onChange={(event) => setBody(event.target.value)} maxLength="5000" placeholder="اكتب رسالة واضحة لمتابعة الشكوى..." /><button className="primary" disabled={sending || !body.trim()} onClick={send}>{sending ? "جاري الإرسال..." : "إرسال رسالة"}</button>{message && <p className="error">{message}</p>}</section>;
 }
 
 function Requests() {
@@ -1897,11 +1923,13 @@ function Requests() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState(null);
   async function loadRequests() {
-    try { const result = await api("/owner/requests"); setData(result.requests || []); }
+    try { const result = await api(`/owner/requests?page=${page}&search=${encodeURIComponent(search)}`); setData(result.requests || []); setPagination(result.pagination || null); }
     catch (error) { setMessage(error.message); } finally { setLoading(false); }
   }
-  useEffect(() => { loadRequests(); }, []);
+  useEffect(() => { const timer = window.setTimeout(loadRequests, 250); return () => window.clearTimeout(timer); }, [page, search]);
   useEffect(() => {
     if (!selectedId) return setSelected(null);
     setDetailsLoading(true); setMessage("");
@@ -1920,7 +1948,7 @@ function Requests() {
   ].some((value) => String(value || "").toLocaleLowerCase().includes(searchTerm)));
   return <div className="page"><Title t="طلبات التقديم" d="افتح كل طلب لمراجعة بياناته ومرفقاته بشكل مستقل." i="✓" />
     {message && <p className="settings-saved">{message}</p>}
-    {!selectedId ? <section className="panel"><label>البحث في الطلبات</label><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="رقم الطلب، الاسم، رقم الهاتف، رقم الأب أو Telegram" /><small>{searchTerm ? `${filteredRequests.length} نتيجة مطابقة` : `${data.length} طلب`}</small>{loading ? <p>جاري التحميل...</p> : filteredRequests.length === 0 ? <p>لا توجد طلبات مطابقة للبحث.</p> : <div className="table"><div className="tr head"><span>الطلب</span><span>المتقدم</span><span>النوع</span><span>المراجعة</span></div>{filteredRequests.map((item) => <div className="tr" key={item.id}><span>#{item.request_number}</span><span>{item.full_name}<br /><small>@{item.telegram_username || "—"}</small></span><span>{accountLabel(item.applicant_type)}</span><span>{item.status}<br /><button className="secondary" onClick={() => setSelectedId(item.id)}>فتح الطلب</button></span></div>)}</div>}</section> : <RequestReview request={selected} loading={detailsLoading} onBack={() => setSelectedId("")} onReview={review} />}
+    {!selectedId ? <section className="panel"><label>البحث في الطلبات</label><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="رقم الطلب، الاسم، رقم الهاتف، رقم الأب أو Telegram" /><small>{pagination ? `${pagination.total} نتيجة` : searchTerm ? `${filteredRequests.length} نتيجة مطابقة` : `${data.length} طلب`}</small>{loading ? <p>جاري التحميل...</p> : filteredRequests.length === 0 ? <p>لا توجد طلبات مطابقة للبحث.</p> : <div className="table"><div className="tr head"><span>الطلب</span><span>المتقدم</span><span>النوع</span><span>المراجعة</span></div>{filteredRequests.map((item) => <div className="tr" key={item.id}><span>#{item.request_number}</span><span>{item.full_name}<br /><small>@{item.telegram_username || "—"}</small></span><span>{accountLabel(item.applicant_type)}</span><span>{item.status}<br /><button className="secondary" onClick={() => setSelectedId(item.id)}>فتح الطلب</button></span></div>)}</div>}{pagination && <div className="inline-actions"><button className="secondary" disabled={pagination.page <= 1} onClick={() => setPage((value) => value - 1)}>السابق</button><small>صفحة {pagination.page} من {pagination.pages}</small><button className="secondary" disabled={pagination.page >= pagination.pages} onClick={() => setPage((value) => value + 1)}>التالي</button></div>}</section> : <RequestReview request={selected} loading={detailsLoading} onBack={() => setSelectedId("")} onReview={review} />}
   </div>;
 }
 
@@ -1958,18 +1986,22 @@ function Users() {
   const [loading, setLoading] =
     useState(true);
 
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState(null);
+
   useEffect(() => {
-    api("/owner/users")
+    const timer = window.setTimeout(() => api(`/owner/users?page=${page}&search=${encodeURIComponent(search)}`)
       .then((result) =>
-        setData(result.users || [])
+        { setData(result.users || []); setPagination(result.pagination || null); }
       )
       .catch((error) =>
         alert(error.message)
       )
       .finally(() =>
         setLoading(false)
-      );
-  }, []);
+      ), 250);
+    return () => window.clearTimeout(timer);
+  }, [page, search]);
 
   const searchTerm = search.trim().toLocaleLowerCase();
   const filteredUsers = data.filter((user) => !searchTerm || [
@@ -1989,7 +2021,7 @@ function Users() {
         <label>البحث عن مستخدم</label>
         <input
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           placeholder="الاسم، يوزر Telegram، Telegram ID أو نوع الحساب"
         />
         <small>{searchTerm ? `${filteredUsers.length} نتيجة مطابقة` : `${data.length} مستخدم`}</small>
@@ -2046,6 +2078,7 @@ function Users() {
             ))}
           </div>
         )}
+        {pagination && <div className="inline-actions"><button className="secondary" disabled={pagination.page <= 1} onClick={() => setPage((value) => value - 1)}>السابق</button><small>صفحة {pagination.page} من {pagination.pages} • {pagination.total} مستخدم</small><button className="secondary" disabled={pagination.page >= pagination.pages} onClick={() => setPage((value) => value + 1)}>التالي</button></div>}
       </section>
     </div>
   );
@@ -2187,9 +2220,10 @@ function OwnerFinance() {
   const [liftId, setLiftId] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
+  const [payments, setPayments] = useState([]);
   const [message, setMessage] = useState("");
   async function load() {
-    try { const result = await api("/owner/finance/brokers"); setBrokers(result.brokers || []); } catch (error) { setMessage(error.message); }
+    try { const [brokerResult, paymentResult] = await Promise.all([api("/owner/finance/brokers"), api("/owner/finance/payments")]); setBrokers(brokerResult.brokers || []); setPayments(paymentResult.payments || []); } catch (error) { setMessage(error.message); }
   }
   useEffect(() => {
     load();
@@ -2216,21 +2250,30 @@ function OwnerFinance() {
       setPaymentAmount(""); setPaymentNote(""); setMessage("تم تسجيل الدفعة وتحديث رصيد الوسيط."); load(); loadLifts(paymentBrokerId);
     } catch (error) { setMessage(error.message); }
   }
+  async function reversePayment(id) {
+    if (!window.confirm("هل تريد إلغاء هذه الدفعة؟ سيُعاد المبلغ إلى الرصيد المتبقي.")) return;
+    try { await api(`/owner/finance/payments/${id}`, { method: "DELETE" }); setMessage("تم إلغاء الدفعة وتحديث الرصيد."); await load(); if (paymentBrokerId) loadLifts(paymentBrokerId); } catch (error) { setMessage(error.message); }
+  }
   return <div className="page">
     <Title t="مالية الوسطاء" d="أضف الرفعات وتابع الأرصدة المتبقية." i="₿" />
     <section className="panel"><h3>إضافة رفعة مالية</h3><select value={brokerId} onChange={(event) => setBrokerId(event.target.value)}><option value="">اختر الوسيط</option>{brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.telegram_name || broker.telegram_username || "وسيط"}</option>)}</select><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="numeric" placeholder="المبلغ بالدينار العراقي" /><div className="seg"><button className={method === "CASH" ? "on" : ""} onClick={() => setMethod("CASH")}>نقدي</button><button className={method === "INSTALLMENTS" ? "on" : ""} onClick={() => setMethod("INSTALLMENTS")}>أقساط</button></div><button className="primary" onClick={addLift}>إضافة الرفعة</button></section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>تسجيل دفعة لوسيط</h3><select value={paymentBrokerId} onChange={(event) => loadLifts(event.target.value)}><option value="">اختر الوسيط</option>{brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.telegram_name || broker.telegram_username || "وسيط"}</option>)}</select><select value={liftId} disabled={!paymentBrokerId} onChange={(event) => setLiftId(event.target.value)}><option value="">اختر الرفعة</option>{lifts.filter((lift) => Number(lift.total_amount) > Number(lift.paid_amount)).map((lift) => <option key={lift.id} value={lift.id}>متبقي {Number(lift.total_amount - lift.paid_amount).toLocaleString("ar-IQ")} د.ع</option>)}</select><input value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} inputMode="numeric" placeholder="قيمة الدفعة بالدينار العراقي" /><textarea rows="3" value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="ملاحظة اختيارية" /><button className="secondary" onClick={addPayment}>تسجيل الدفعة</button>{message && <p className="settings-saved">{message}</p>}</section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>أرصدة الوسطاء</h3><Table rows={brokers.length ? brokers.map((broker) => [broker.telegram_name || "—", Number(broker.total).toLocaleString("ar-IQ"), Number(broker.paid).toLocaleString("ar-IQ"), (Number(broker.total) - Number(broker.paid)).toLocaleString("ar-IQ")]) : [["لا يوجد وسطاء", "—", "—", "—"]]} /></section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>آخر الدفعات المسجلة</h3>{payments.length ? <div className="table"><div className="tr head"><span>الوسيط</span><span>المبلغ</span><span>التاريخ</span><span>إجراء</span></div>{payments.map((payment) => <div className="tr" key={payment.id}><span>{payment.broker_name || payment.broker_username || "—"}<br /><small>{payment.note || "بدون ملاحظة"}</small></span><span>{Number(payment.amount).toLocaleString("ar-IQ")} د.ع</span><span>{new Date(payment.payment_date).toLocaleString("ar-IQ")}</span><span><button className="secondary" onClick={() => reversePayment(payment.id)}>إلغاء الدفعة</button></span></div>)}</div> : <p>لا توجد دفعات مسجلة بعد.</p>}</section>
   </div>;
 }
 
 function OwnerReports() {
   const [report, setReport] = useState(null);
   const [error, setError] = useState("");
-  useEffect(() => { api("/owner/reports").then((result) => setReport(result.report)).catch((err) => setError(err.message)); }, []);
+  const [days, setDays] = useState(30);
+  async function load() { setError(""); try { const result = await api(`/owner/reports?days=${days}`); setReport(result.report); } catch (err) { setError(err.message); } }
+  useEffect(() => { load(); }, [days]);
   const count = (rows, name) => Number((rows || []).find((item) => item.status === name || item.account_type === name)?.total || 0);
   const money = (value) => Number(value || 0).toLocaleString("ar-IQ");
+  function exportReport() { if (!report) return; const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `super-amazon-report-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url); }
   return <div className="page"><Title t="تقارير المنصة" d="ملخص حيّ للحسابات والطلبات والشكاوى والمالية." i="▥" />
+    <section className="panel"><label>فترة التقرير</label><select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value="7">آخر 7 أيام</option><option value="30">آخر 30 يومًا</option><option value="90">آخر 90 يومًا</option><option value="365">آخر سنة</option></select><button className="secondary" onClick={load}>تحديث التقرير</button>{report && <button className="secondary" onClick={exportReport}>تصدير JSON</button>}</section>
     {error && <p className="error">{error}</p>}
     {!report ? <section className="panel"><p>جاري إعداد التقرير...</p></section> : <>
       <div className="stats"><div className="stat"><small>الأعضاء</small><strong>{count(report.users, "MEMBER")}</strong><span>حساب</span></div><div className="stat"><small>ادمن</small><strong>{count(report.users, "ADMIN")}</strong><span>حساب</span></div><div className="stat"><small>الوسطاء</small><strong>{count(report.users, "BROKER")}</strong><span>حساب</span></div></div>
@@ -2244,7 +2287,7 @@ function OwnerReports() {
 function Assistants({ role }) {
   const [assistants, setAssistants] = useState([]); const [users, setUsers] = useState([]); const [userId, setUserId] = useState("");
   const [permissions, setPermissions] = useState(["REQUESTS", "COMPLAINTS"]); const [message, setMessage] = useState("");
-  const available = [["REQUESTS", "الطلبات"], ["COMPLAINTS", "الشكاوى"], ["USERS", "المستخدمون"], ["FINANCE", "المالية"], ["ANNOUNCEMENTS", "الإعلانات"]];
+  const available = [["REQUESTS", "الطلبات"], ["COMPLAINTS", "الشكاوى"], ["USERS", "المستخدمون"], ["FINANCE", "مالية الوسطاء"], ["ANNOUNCEMENTS", "القوانين والتوجيهات"], ["REPORTS", "التقارير"], ["AUDIT", "سجل العمليات"], ["BACKUP", "النسخ الاحتياطي"], ["SYSTEM", "حالة النظام"]];
   async function load() { try { const [assistantResult, userResult] = await Promise.all([api("/owner/assistants"), api("/owner/users")]); setAssistants(assistantResult.assistants || []); setUsers((userResult.users || []).filter((item) => item.role !== "OWNER" && item.role !== "OWNER_ASSISTANT")); } catch (error) { setMessage(error.message); } }
   useEffect(() => { load(); }, []);
   function toggle(value) { setPermissions((old) => old.includes(value) ? old.filter((item) => item !== value) : [...old, value]); }
@@ -2257,9 +2300,10 @@ function Assistants({ role }) {
 }
 
 function AuditLog() {
-  const [logs, setLogs] = useState([]); const [error, setError] = useState("");
-  useEffect(() => { api("/owner/audit").then((result) => setLogs(result.logs || [])).catch((err) => setError(err.message)); }, []);
-  return <div className="page"><Title t="سجل العمليات" d="تتبّع المراجعات والتغييرات الإدارية الأخيرة." i="◌" />{error && <p className="error">{error}</p>}<section className="panel">{logs.length ? logs.map((log) => <article className="complaint-row" key={log.id}><b>{log.action.replaceAll("_", " ")}</b><p>{log.telegram_name || log.telegram_username || "النظام"}{log.target_type ? ` • ${log.target_type}` : ""}{log.target_id ? ` • ${log.target_id.slice(0, 8)}` : ""}</p><small>{new Date(log.created_at).toLocaleString("ar-IQ")}</small></article>) : <p>لا توجد عمليات مسجلة بعد.</p>}</section></div>;
+  const [logs, setLogs] = useState([]); const [error, setError] = useState(""); const [search, setSearch] = useState(""); const [action, setAction] = useState(""); const [page, setPage] = useState(1); const [pagination, setPagination] = useState(null);
+  async function load() { try { const result = await api(`/owner/audit?page=${page}&search=${encodeURIComponent(search)}&action=${encodeURIComponent(action)}`); setLogs(result.logs || []); setPagination(result.pagination || null); } catch (err) { setError(err.message); } }
+  useEffect(() => { const timer = window.setTimeout(load, 250); return () => window.clearTimeout(timer); }, [page, search, action]);
+  return <div className="page"><Title t="سجل العمليات" d="تتبّع المراجعات والتغييرات الإدارية الأخيرة." i="◌" />{error && <p className="error">{error}</p>}<section className="panel"><label>البحث في السجل</label><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="اسم المنفذ أو نوع العملية أو رقم الهدف" /><select value={action} onChange={(event) => { setAction(event.target.value); setPage(1); }}><option value="">كل العمليات</option><option value="REVIEW_APPLICATION">مراجعة طلب</option><option value="CREATE_COMPLAINT">شكوى جديدة</option><option value="RECORD_BROKER_PAYMENT">دفعة مالية</option><option value="CREATE_BACKUP">نسخة احتياطية</option></select>{logs.length ? logs.map((log) => <article className="complaint-row" key={log.id}><b>{log.action.replaceAll("_", " ")}</b><p>{log.telegram_name || log.telegram_username || "النظام"}{log.target_type ? ` • ${log.target_type}` : ""}{log.target_id ? ` • ${log.target_id.slice(0, 8)}` : ""}</p><small>{new Date(log.created_at).toLocaleString("ar-IQ")}</small></article>) : <p>لا توجد عمليات مطابقة.</p>}{pagination && <div className="inline-actions"><button className="secondary" disabled={pagination.page <= 1} onClick={() => setPage((value) => value - 1)}>السابق</button><small>صفحة {pagination.page} من {pagination.pages} • {pagination.total} عملية</small><button className="secondary" disabled={pagination.page >= pagination.pages} onClick={() => setPage((value) => value + 1)}>التالي</button></div>}</section></div>;
 }
 
 function SystemStatus() {

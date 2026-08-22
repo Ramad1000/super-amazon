@@ -20,14 +20,23 @@ router.get("/", async (req, res, next) => {
 
 router.use("/manage", requireRoles("OWNER", "OWNER_ASSISTANT"));
 
-router.get("/manage", async (req, res, next) => {
+async function requireAnnouncementPermission(req, res, next) {
+  if (req.user.role === "OWNER") return next();
+  try {
+    const allowed = await query("SELECT 1 FROM assistant_permissions WHERE assistant_id = $1 AND permission = 'ANNOUNCEMENTS'", [req.user.sub]);
+    if (!allowed.rows.length) return res.status(403).json({ success: false, message: "ليس لديك صلاحية إدارة القوانين والتوجيهات" });
+    return next();
+  } catch (error) { return next(error); }
+}
+
+router.get("/manage", requireAnnouncementPermission, async (req, res, next) => {
   try {
     const result = await query("SELECT * FROM announcements ORDER BY created_at DESC");
     return res.json({ success: true, announcements: result.rows });
   } catch (error) { return next(error); }
 });
 
-router.post("/manage", async (req, res, next) => {
+router.post("/manage", requireAnnouncementPermission, async (req, res, next) => {
   const category = String(req.body?.category || "GENERAL").slice(0, 30);
   const title = String(req.body?.title || "").trim();
   const body = String(req.body?.body || "").trim();
@@ -46,7 +55,7 @@ router.post("/manage", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-router.patch("/manage/:id", async (req, res, next) => {
+router.patch("/manage/:id", requireAnnouncementPermission, async (req, res, next) => {
   try {
     const result = await query(
       "UPDATE announcements SET published = $1, updated_at = NOW() WHERE id = $2 RETURNING *",

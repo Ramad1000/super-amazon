@@ -47,4 +47,14 @@ async function notifyRole(role, title, body) {
   return result.rows.length;
 }
 
-module.exports = { notifyUser, notifyAudience, notifyRole, sendTelegramNotification };
+async function notifyAssistantsWithPermission(permission, title, body) {
+  const result = await query(
+    `SELECT u.id FROM users u JOIN assistant_permissions ap ON ap.assistant_id = u.id
+     WHERE u.status = 'ACTIVE'::user_status AND u.role = 'OWNER_ASSISTANT'::user_role AND ap.permission = $1`,
+    [permission]
+  );
+  for (const user of result.rows) await notifyUser(user.id, title, body);
+  return result.rows.length;
+}
+
+module.exports = { notifyUser, notifyAudience, notifyRole, notifyAssistantsWithPermission, sendTelegramNotification };

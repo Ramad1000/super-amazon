@@ -5,7 +5,7 @@ const path = require("path");
 const multer = require("multer");
 const { query } = require("../db/database");
 const { auth } = require("../middleware/auth");
-const { notifyUser, notifyRole } = require("../services/notification.service");
+const { notifyUser, notifyRole, notifyAssistantsWithPermission } = require("../services/notification.service");
 const { uploadToTelegram } = require("../services/telegram-storage.service");
 
 const router = express.Router();
@@ -74,6 +74,38 @@ router.get("/me", async (req, res, next) => {
   }
 });
 
+router.get("/me/:id", async (req, res, next) => {
+  try {
+    const complaint = await query(
+      `SELECT c.*, u.telegram_name AS target_name, u.telegram_username AS target_username
+       FROM complaints c JOIN users u ON u.id = c.target_user_id
+       WHERE c.id = $1 AND c.complainant_id = $2`,
+      [req.params.id, req.user.sub]
+    );
+    if (!complaint.rows.length) return res.status(404).json({ success: false, message: "الشكوى غير موجودة" });
+    const messages = await query(
+      `SELECT m.id, m.body, m.created_at, u.telegram_name, u.telegram_username, u.role, u.account_type
+       FROM complaint_messages m JOIN users u ON u.id = m.sender_id
+       WHERE m.complaint_id = $1 ORDER BY m.created_at ASC`, [req.params.id]
+    );
+    return res.json({ success: true, complaint: { ...complaint.rows[0], messages: messages.rows } });
+  } catch (error) { return next(error); }
+});
+
+router.post("/:id/messages", async (req, res, next) => {
+  const body = String(req.body?.body || "").trim();
+  if (body.length < 1 || body.length > 5000) return res.status(400).json({ success: false, message: "اكتب رسالة بين 1 و5000 حرف" });
+  try {
+    const complaint = await query("SELECT id, target_user_id FROM complaints WHERE id = $1 AND complainant_id = $2", [req.params.id, req.user.sub]);
+    if (!complaint.rows.length) return res.status(404).json({ success: false, message: "الشكوى غير موجودة" });
+    const result = await query("INSERT INTO complaint_messages (complaint_id, sender_id, body) VALUES ($1,$2,$3) RETURNING id, body, created_at", [req.params.id, req.user.sub, body]);
+    await query("UPDATE complaints SET status = 'UNDER_REVIEW', updated_at = NOW() WHERE id = $1", [req.params.id]);
+    await notifyRole("OWNER", "رد جديد على شكوى", "أرسل مقدم الشكوى رسالة جديدة للمراجعة.");
+    await notifyAssistantsWithPermission("COMPLAINTS", "رد جديد على شكوى", "أرسل مقدم الشكوى رسالة جديدة للمراجعة.");
+    return res.status(201).json({ success: true, message: result.rows[0] });
+  } catch (error) { return next(error); }
+});
+
 router.post("/", upload.array("attachments", 4), async (req, res, next) => {
   let complaintId = null;
   try {
@@ -116,7 +148,7 @@ router.post("/", upload.array("attachments", 4), async (req, res, next) => {
     );
     await notifyUser(req.user.sub, "تم استلام الشكوى", "تم إرسال شكواك إلى الإدارة وسيتم إشعارك عند تحديث حالتها.");
     await notifyRole("OWNER", "شكوى جديدة", `تم استلام شكوى جديدة ضد حساب ${targetType}.`);
-    await notifyRole("OWNER_ASSISTANT", "شكوى جديدة", `تم استلام شكوى جديدة ضد حساب ${targetType}.`);
+    await notifyAssistantsWithPermission("COMPLAINTS", "شكوى جديدة", `تم استلام شكوى جديدة ضد حساب ${targetType}.`);
     return res.status(201).json({ success: true, complaint: created.rows[0] });
   } catch (error) {
     if (complaintId) {
