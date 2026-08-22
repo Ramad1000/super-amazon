@@ -2,6 +2,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { pool, query } = require("../db/database");
 const { sendTelegramNotification, notifyRole } = require("./notification.service");
+const { uploadToTelegram } = require("./telegram-storage.service");
 
 const REQUIRED = [
   "ID_FRONT",
@@ -136,6 +137,8 @@ async function createRequest({
     for (const type of REQUIRED) {
       const file = files[type];
 
+      const telegramFile = await uploadToTelegram(file, `Super Amazon • طلب #${request.request_number} • ${type}`);
+
       const hash = crypto
         .createHash("sha256")
         .update(fs.readFileSync(file.path))
@@ -151,7 +154,9 @@ async function createRequest({
           mime_type,
           file_size,
           storage_path,
-          sha256_hash
+          sha256_hash,
+          telegram_file_id,
+          telegram_chat_id
         )
         VALUES (
           $1,
@@ -161,7 +166,9 @@ async function createRequest({
           $5,
           $6,
           $7,
-          $8
+          $8,
+          $9,
+          $10
         )
         `,
         [
@@ -172,7 +179,9 @@ async function createRequest({
           file.mimetype,
           file.size,
           file.path,
-          hash
+          hash,
+          telegramFile.fileId,
+          telegramFile.chatId
         ]
       );
 
@@ -308,11 +317,12 @@ async function correctRequest({
 
     for (const type of REQUIRED) {
       const file = files[type];
+      const telegramFile = await uploadToTelegram(file, `Super Amazon • طلب #${request.request_number} • ${type}`);
       const hash = crypto.createHash("sha256").update(fs.readFileSync(file.path)).digest("hex");
       await c.query(
-        `INSERT INTO request_files (request_id, file_type, original_name, stored_name, mime_type, file_size, storage_path, sha256_hash)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [request.id, type, file.originalname, file.filename, file.mimetype, file.size, file.path, hash]
+        `INSERT INTO request_files (request_id, file_type, original_name, stored_name, mime_type, file_size, storage_path, sha256_hash, telegram_file_id, telegram_chat_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [request.id, type, file.originalname, file.filename, file.mimetype, file.size, file.path, hash, telegramFile.fileId, telegramFile.chatId]
       );
       saved.push(file.path);
     }

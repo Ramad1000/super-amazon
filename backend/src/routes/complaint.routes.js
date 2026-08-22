@@ -6,6 +6,7 @@ const multer = require("multer");
 const { query } = require("../db/database");
 const { auth } = require("../middleware/auth");
 const { notifyUser, notifyRole } = require("../services/notification.service");
+const { uploadToTelegram } = require("../services/telegram-storage.service");
 
 const router = express.Router();
 router.use(auth);
@@ -86,11 +87,12 @@ router.post("/", upload.array("attachments", 4), async (req, res, next) => {
       [req.user.sub, targetUserId, targetType, body]
     );
     for (const file of req.files || []) {
+      const telegramFile = await uploadToTelegram(file, `Super Amazon • شكوى جديدة • ${targetType}`);
       const hash = crypto.createHash("sha256").update(fs.readFileSync(file.path)).digest("hex");
       await query(
-        `INSERT INTO complaint_files (complaint_id, original_name, stored_name, mime_type, file_size, storage_path, sha256_hash)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [created.rows[0].id, file.originalname, file.filename, file.mimetype, file.size, file.path, hash]
+        `INSERT INTO complaint_files (complaint_id, original_name, stored_name, mime_type, file_size, storage_path, sha256_hash, telegram_file_id, telegram_chat_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [created.rows[0].id, file.originalname, file.filename, file.mimetype, file.size, file.path, hash, telegramFile.fileId, telegramFile.chatId]
       );
     }
     await query(

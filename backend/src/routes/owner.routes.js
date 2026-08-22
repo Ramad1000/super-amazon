@@ -4,6 +4,7 @@ const path = require("path");
 const { pool, query } = require("../db/database");
 const { auth, requireRoles } = require("../middleware/auth");
 const { notifyUser } = require("../services/notification.service");
+const { streamFromTelegram, configured: telegramStorageConfigured } = require("../services/telegram-storage.service");
 
 const router = express.Router();
 router.use(auth, requireRoles("OWNER", "OWNER_ASSISTANT"));
@@ -40,14 +41,15 @@ router.get("/requests/:id", async (req, res, next) => {
 router.get("/requests/:requestId/files/:fileId", async (req, res, next) => {
   try {
     const result = await query(
-      `SELECT f.original_name, f.mime_type, f.storage_path FROM request_files f
+      `SELECT f.original_name, f.mime_type, f.storage_path, f.telegram_file_id FROM request_files f
        JOIN requests r ON r.id = f.request_id WHERE f.id = $1 AND r.id = $2`,
       [req.params.fileId, req.params.requestId]
     );
     if (!result.rows.length) return res.status(404).json({ success: false, message: "المرفق غير موجود" });
     const file = result.rows[0];
+    if (file.telegram_file_id) return streamFromTelegram(file.telegram_file_id, file.mime_type, res);
     const absolutePath = path.resolve(file.storage_path);
-    if (!fs.existsSync(absolutePath)) return res.status(404).json({ success: false, message: "الملف غير متاح على الخادم" });
+    if (!fs.existsSync(absolutePath)) return res.status(404).json({ success: false, message: "هذا المرفق قديم وفُقد من مساحة Render المؤقتة. اطلب من المتقدم إعادة رفعه." });
     res.type(file.mime_type);
     res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.original_name)}`);
     return res.sendFile(absolutePath);
@@ -142,6 +144,7 @@ router.get("/system", async (req, res, next) => {
     return res.json({ success: true, system: {
       database: "OPERATIONAL", api: "OPERATIONAL", databaseLatencyMs: Date.now() - started,
       uptimeSeconds: Math.floor(process.uptime()), node: process.version, serverTime: new Date().toISOString(),
+      telegramStorage: telegramStorageConfigured() ? "CONFIGURED" : "NOT_CONFIGURED",
     }});
   } catch (error) { return next(error); }
 });
