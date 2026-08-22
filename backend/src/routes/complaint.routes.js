@@ -75,6 +75,7 @@ router.get("/me", async (req, res, next) => {
 });
 
 router.post("/", upload.array("attachments", 4), async (req, res, next) => {
+  let complaintId = null;
   try {
     const targetUserId = String(req.body?.targetUserId || "");
     const targetType = String(req.body?.targetType || "").toUpperCase();
@@ -97,6 +98,7 @@ router.post("/", upload.array("attachments", 4), async (req, res, next) => {
        VALUES ($1,$2,$3::account_type,$4) RETURNING *`,
       [req.user.sub, targetUserId, targetType, body]
     );
+    complaintId = created.rows[0].id;
     for (const file of req.files || []) {
       const mimeType = normalizedMimeType(file);
       const telegramFile = await uploadToTelegram({ ...file, mimetype: mimeType }, `Super Amazon • شكوى جديدة • ${targetType}`);
@@ -117,6 +119,9 @@ router.post("/", upload.array("attachments", 4), async (req, res, next) => {
     await notifyRole("OWNER_ASSISTANT", "شكوى جديدة", `تم استلام شكوى جديدة ضد حساب ${targetType}.`);
     return res.status(201).json({ success: true, complaint: created.rows[0] });
   } catch (error) {
+    if (complaintId) {
+      await query("DELETE FROM complaints WHERE id = $1", [complaintId]).catch(() => {});
+    }
     return next(error);
   }
 });

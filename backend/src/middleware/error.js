@@ -7,10 +7,12 @@ const logPath = path.resolve(__dirname, "../../logs/errors.log");
 function removeUploadedFiles(files) {
   if (!files) return;
 
-  for (const entries of Object.values(files)) {
-    for (const file of entries) {
-      fs.unlink(file.path, () => {});
-    }
+  const uploadedFiles = Array.isArray(files)
+    ? files
+    : Object.values(files).flat();
+
+  for (const file of uploadedFiles) {
+    if (file?.path) fs.unlink(file.path, () => {});
   }
 }
 
