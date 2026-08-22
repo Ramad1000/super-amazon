@@ -3,6 +3,7 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const { PORT, CORS_ORIGIN, UPLOAD_DIR } = require("./config/env");
+const { initializeDatabase } = require("./db/database");
 const { errorHandler, notFound } = require("./middleware/error");
 
 fs.mkdirSync(path.resolve(__dirname, "..", UPLOAD_DIR), { recursive: true });
@@ -34,6 +35,14 @@ if (fs.existsSync(frontendDist)) {
 app.use(notFound);
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`Super Amazon backend listening on http://localhost:${PORT}`);
+async function start() {
+  await initializeDatabase();
+  app.listen(PORT, () => {
+    console.log(`Super Amazon backend listening on http://localhost:${PORT}`);
+  });
+}
+
+start().catch((error) => {
+  console.error("Unable to initialize the database", error);
+  process.exit(1);
 });
