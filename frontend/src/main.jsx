@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import superAmazonLogo from "./assets/super-amazon-logo.png";
 
 const API =
   import.meta.env.VITE_API_URL || "http://localhost:4000/api";
@@ -261,7 +262,12 @@ function Login({ login, error, loading, status }) {
   return (
     <div className="login">
       <section className="brand">
-        <b>SA</b>
+        <img
+          className="brand-logo login-logo"
+          src={superAmazonLogo}
+          alt="Super Amazon"
+          style={{ width: 82, height: 82, objectFit: "cover", borderRadius: 22, border: "1px solid #f7c451", boxShadow: "0 6px 18px #00000055", marginBottom: 10 }}
+        />
         <small>PLATFORM • 2026</small>
 
         <h1>
@@ -391,7 +397,12 @@ function Side({
   return (
     <aside className={open ? "sidebar expanded" : "sidebar collapsed"} aria-label="التنقل الرئيسي">
       <div className="logo">
-        <b>SA</b>
+        <img
+          className="brand-logo sidebar-logo"
+          src={superAmazonLogo}
+          alt="Super Amazon"
+          style={{ width: 43, height: 43, objectFit: "cover", borderRadius: 12, border: "1px solid #f7c451", boxShadow: "0 6px 18px #00000055", flex: "0 0 43px" }}
+        />
 
         <span>
           SUPER AMAZON
