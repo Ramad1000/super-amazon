@@ -52,9 +52,10 @@ function errorHandler(error, req, res, next) { // eslint-disable-line no-unused-
     : 500;
 
   const message =
-    status >= 500
+    error.publicMessage ||
+    (status >= 500
       ? "حدث خطأ أثناء معالجة الطلب"
-      : error.message || "تعذر معالجة الطلب";
+      : error.message || "تعذر معالجة الطلب");
 
   return res.status(status).json({ success: false, message });
 }

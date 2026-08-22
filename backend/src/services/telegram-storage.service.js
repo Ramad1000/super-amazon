@@ -5,6 +5,7 @@ const { TELEGRAM_BOT_TOKEN, TELEGRAM_STORAGE_CHAT_ID } = require("../config/env"
 function storageError(message) {
   const error = new Error(message);
   error.statusCode = 503;
+  error.publicMessage = "تعذر حفظ المرفقات في قناة Telegram. تأكد من إعداد TELEGRAM_STORAGE_CHAT_ID ومن منح البوت صلاحية المشرف في القناة.";
   return error;
 }
 
