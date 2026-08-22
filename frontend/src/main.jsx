@@ -1389,6 +1389,9 @@ function MemberComplaints() {
   const [body, setBody] =
     useState("");
 
+  const [attachments, setAttachments] =
+    useState([]);
+
   const [items, setItems] =
     useState([]);
 
@@ -1450,17 +1453,20 @@ function MemberComplaints() {
     setSending(true);
 
     try {
+      const form = new FormData();
+      form.append("targetUserId", target);
+      form.append("targetType", targetType);
+      form.append("body", body.trim());
+      attachments.forEach((file) => form.append("attachments", file));
+
       await api("/complaints", {
         method: "POST",
-        body: JSON.stringify({
-          targetUserId: target,
-          targetType,
-          body: body.trim(),
-        }),
+        body: form,
       });
 
       setBody("");
       setTarget("");
+      setAttachments([]);
 
       await loadComplaints();
 
@@ -1560,9 +1566,15 @@ function MemberComplaints() {
           />
 
           <div className="upload">
-            إرفاق الصور والفيديو
-            والمستندات سيتم ربطه
-            في مرحلة الملفات الكبيرة.
+            <b>إرفاق أدلة الشكوى</b>
+            <small>صور أو فيديوهات، حتى 4 ملفات وبحد أقصى 100MB للملف.</small>
+            <input
+              type="file"
+              accept="image/*,video/mp4,video/webm,video/quicktime"
+              multiple
+              onChange={(event) => setAttachments(Array.from(event.target.files || []).slice(0, 4))}
+            />
+            {attachments.length > 0 && <small>تم اختيار {attachments.length} ملف/ملفات.</small>}
           </div>
 
           <button

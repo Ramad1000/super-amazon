@@ -1,9 +1,29 @@
 const express = require("express");
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+const multer = require("multer");
 const { query } = require("../db/database");
 const { auth } = require("../middleware/auth");
 
 const router = express.Router();
 router.use(auth);
+
+const uploadDirectory = path.resolve(__dirname, "../../uploads");
+const storage = multer.diskStorage({
+  destination: (req, file, callback) => callback(null, uploadDirectory),
+  filename: (req, file, callback) => callback(null, `${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`),
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024, files: 4 },
+  fileFilter: (req, file, callback) => {
+    if (file.mimetype.startsWith("image/") || ["video/mp4", "video/webm", "video/quicktime"].includes(file.mimetype)) return callback(null, true);
+    const error = new Error("يمكن رفع الصور أو فيديو MP4/WebM فقط");
+    error.statusCode = 400;
+    return callback(error);
+  },
+});
 
 router.get("/targets", async (req, res, next) => {
   try {
@@ -41,7 +61,7 @@ router.get("/me", async (req, res, next) => {
   }
 });
 
-router.post("/", async (req, res, next) => {
+router.post("/", upload.array("attachments", 4), async (req, res, next) => {
   try {
     const targetUserId = String(req.body?.targetUserId || "");
     const targetType = String(req.body?.targetType || "").toUpperCase();
@@ -64,6 +84,14 @@ router.post("/", async (req, res, next) => {
        VALUES ($1,$2,$3::account_type,$4) RETURNING *`,
       [req.user.sub, targetUserId, targetType, body]
     );
+    for (const file of req.files || []) {
+      const hash = crypto.createHash("sha256").update(fs.readFileSync(file.path)).digest("hex");
+      await query(
+        `INSERT INTO complaint_files (complaint_id, original_name, stored_name, mime_type, file_size, storage_path, sha256_hash)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [created.rows[0].id, file.originalname, file.filename, file.mimetype, file.size, file.path, hash]
+      );
+    }
     await query(
       `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
        VALUES ($1, 'CREATE_COMPLAINT', 'COMPLAINT', $2, $3::jsonb)`,
