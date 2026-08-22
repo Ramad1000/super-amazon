@@ -1,6 +1,8 @@
 const express = require("express");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 const { pool, query } = require("../db/database");
 const { auth, requireRoles } = require("../middleware/auth");
 const { notifyUser } = require("../services/notification.service");
@@ -147,6 +149,90 @@ router.get("/system", async (req, res, next) => {
       telegramStorage: telegramStorageConfigured() ? "CONFIGURED" : "NOT_CONFIGURED",
     }});
   } catch (error) { return next(error); }
+});
+
+router.get("/backups", async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT id, started_at, finished_at, status, file_size, sha256_hash, telegram_message_id, error_message
+       FROM backup_logs ORDER BY started_at DESC LIMIT 50`
+    );
+    return res.json({ success: true, backups: result.rows });
+  } catch (error) { return next(error); }
+});
+
+router.post("/backups", requireRoles("OWNER"), async (req, res, next) => {
+  const startedAt = new Date();
+  let backupId = null;
+  let filePath = null;
+
+  try {
+    const created = await query(
+      "INSERT INTO backup_logs (started_at, status) VALUES ($1, 'RUNNING') RETURNING id",
+      [startedAt]
+    );
+    backupId = created.rows[0].id;
+
+    const [users, requests, requestFiles, complaints, complaintFiles, brokerLifts, brokerPayments, announcements, notifications, auditLogs] = await Promise.all([
+      query("SELECT id, telegram_id, telegram_username, telegram_name, account_type, role, status, is_verified, created_at, updated_at FROM users ORDER BY created_at"),
+      query("SELECT * FROM requests ORDER BY created_at"),
+      query("SELECT * FROM request_files ORDER BY created_at"),
+      query("SELECT * FROM complaints ORDER BY created_at"),
+      query("SELECT * FROM complaint_files ORDER BY created_at"),
+      query("SELECT * FROM broker_lifts ORDER BY created_at"),
+      query("SELECT * FROM broker_payments ORDER BY payment_date"),
+      query("SELECT * FROM announcements ORDER BY created_at"),
+      query("SELECT * FROM notifications ORDER BY created_at"),
+      query("SELECT * FROM audit_logs ORDER BY created_at"),
+    ]);
+
+    const backup = Buffer.from(JSON.stringify({
+      format: "super-amazon-backup-v1",
+      generatedAt: new Date().toISOString(),
+      data: {
+        users: users.rows, requests: requests.rows, requestFiles: requestFiles.rows,
+        complaints: complaints.rows, complaintFiles: complaintFiles.rows,
+        brokerLifts: brokerLifts.rows, brokerPayments: brokerPayments.rows,
+        announcements: announcements.rows, notifications: notifications.rows, auditLogs: auditLogs.rows,
+      },
+    }));
+    const compressed = zlib.gzipSync(backup, { level: 9 });
+    const tempDirectory = path.resolve(__dirname, "../../tmp");
+    fs.mkdirSync(tempDirectory, { recursive: true });
+    const filename = `super-amazon-backup-${startedAt.toISOString().replace(/[:.]/g, "-")}.json.gz`;
+    filePath = path.join(tempDirectory, filename);
+    fs.writeFileSync(filePath, compressed);
+
+    const sha256 = crypto.createHash("sha256").update(compressed).digest("hex");
+    const telegramFile = await uploadToTelegram({
+      path: filePath,
+      originalname: filename,
+      mimetype: "application/gzip",
+      size: compressed.length,
+    }, "Super Amazon • نسخة احتياطية مشفرة من بيانات المنصة");
+
+    const saved = await query(
+      `UPDATE backup_logs SET finished_at = NOW(), status = 'SUCCESS', file_size = $1, sha256_hash = $2,
+       telegram_message_id = $3 WHERE id = $4 RETURNING *`,
+      [compressed.length, sha256, String(telegramFile.messageId || ""), backupId]
+    );
+    await query(
+      `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
+       VALUES ($1, 'CREATE_BACKUP', 'BACKUP', $2, $3::jsonb)`,
+      [req.user.sub, backupId, JSON.stringify({ fileSize: compressed.length, sha256 })]
+    );
+    return res.status(201).json({ success: true, backup: saved.rows[0] });
+  } catch (error) {
+    if (backupId) {
+      await query(
+        "UPDATE backup_logs SET finished_at = NOW(), status = 'FAILED', error_message = $1 WHERE id = $2",
+        [String(error.message || "فشل إنشاء النسخة").slice(0, 1000), backupId]
+      ).catch(() => {});
+    }
+    return next(error);
+  } finally {
+    if (filePath) fs.unlink(filePath, () => {});
+  }
 });
 
 router.get("/users", async (req, res, next) => {

@@ -518,7 +518,7 @@ function Router({
   }
 
   if (page === "backup") {
-    return <Backup />;
+    return <Backup role={role} />;
   }
 
   if (page === "system") {
@@ -2123,53 +2123,50 @@ function SystemStatus() {
   return <div className="page"><Title t="حالة النظام" d="فحص مباشر للخادم وقاعدة البيانات." i="▦" />{error && <p className="error">{error}</p>}<section className="panel">{!system ? <p>جاري الفحص...</p> : <><div className="stats"><div className="stat"><small>واجهة API</small><strong>✓</strong><span>تعمل</span></div><div className="stat"><small>قاعدة البيانات</small><strong>✓</strong><span>{system.databaseLatencyMs} ms</span></div><div className="stat"><small>تخزين Telegram</small><strong>{system.telegramStorage === "CONFIGURED" ? "✓" : "!"}</strong><span>{system.telegramStorage === "CONFIGURED" ? "مُعد" : "غير مُعد"}</span></div><div className="stat"><small>وقت التشغيل</small><strong>{Math.floor(system.uptimeSeconds / 60)}</strong><span>دقيقة</span></div></div><p>وقت الخادم: {new Date(system.serverTime).toLocaleString("ar-IQ")}</p><button className="secondary" onClick={load}>إعادة الفحص</button></>}</section></div>;
 }
 
-function Backup() {
-  return (
-    <div className="page">
-      <Title
-        t="النسخ الاحتياطي"
-        d="مركز النسخ الاحتياطي اليومي إلى Telegram."
-        i="↻"
-      />
+function Backup({ role }) {
+  const [backups, setBackups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState("");
 
-      <section className="backup">
-        <h3>
-          ✓ آخر نسخة ناجحة
-        </h3>
+  async function load() {
+    setLoading(true);
+    try {
+      const result = await api("/owner/backups");
+      setBackups(result.backups || []);
+    } catch (error) { setMessage(error.message); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { load(); }, []);
 
-        <strong>
-          اليوم • 03:00
-        </strong>
+  async function createBackup() {
+    setCreating(true); setMessage("");
+    try {
+      const result = await api("/owner/backups", { method: "POST" });
+      setMessage(`تم إنشاء النسخة وإرسالها إلى قناة Telegram. البصمة: ${String(result.backup.sha256_hash || "").slice(0, 12)}…`);
+      await load();
+    } catch (error) { setMessage(error.message); }
+    finally { setCreating(false); }
+  }
 
-        <p>
-          النسخة سليمة ومشفرة
-        </p>
-
-        <div className="stats">
-          <div>
-            <small>الحجم</small>
-            <b>184 MB</b>
-          </div>
-
-          <div>
-            <small>SHA-256</small>
-            <b>••••••••</b>
-          </div>
-
-          <div>
-            <small>القناة</small>
-            <b>
-              محددة من Owner
-            </b>
-          </div>
-        </div>
-
-        <button className="primary">
-          إنشاء نسخة اختبارية
-        </button>
-      </section>
-    </div>
-  );
+  return <div className="page">
+    <Title t="النسخ الاحتياطي" d="نسخ فعلية مضغوطة من بيانات المنصة تُحفظ في قناة Telegram الخاصة." i="↻" />
+    <section className="panel">
+      <h3>نسخة احتياطية جديدة</h3>
+      <p>يشمل النسخ المستخدمين والطلبات والمرفقات والمالية والشكاوى والإشعارات وسجل العمليات. لا تُنسخ الجلسات أو رموز الدخول.</p>
+      {role === "OWNER" ? <button className="primary" disabled={creating} onClick={createBackup}>{creating ? "جاري إنشاء النسخة وإرسالها..." : "إنشاء نسخة احتياطية الآن"}</button> : <p>يمكنك مراجعة سجل النسخ الاحتياطية. إنشاء النسخ متاح لحساب Owner فقط.</p>}
+      {message && <p className="settings-saved">{message}</p>}
+    </section>
+    <section className="panel" style={{ marginTop: "18px" }}>
+      <h3>سجل النسخ الاحتياطية</h3>
+      {loading ? <p>جاري تحميل السجل...</p> : <Table rows={backups.length ? backups.map((backup) => [
+        backup.status === "SUCCESS" ? "نسخة مكتملة" : backup.status === "FAILED" ? "نسخة فشلت" : "قيد الإنشاء",
+        backup.file_size ? `${(Number(backup.file_size) / 1024 / 1024).toFixed(2)} MB` : "—",
+        new Date(backup.started_at).toLocaleString("ar-IQ"),
+        backup.status === "SUCCESS" ? "تم الحفظ في Telegram" : backup.error_message || backup.status,
+      ]) : [["لا توجد نسخ بعد", "—", "—", "—"]]} />}
+    </section>
+  </div>;
 }
 
 function Profile({ user }) {
@@ -2259,29 +2256,13 @@ function Basic({ title, icon }) {
     <div className="page">
       <Title
         t={title}
-        d="هذا القسم مصمم للربط مع خدمات النظام وقاعدة البيانات."
+        d="لا تملك صلاحية الوصول إلى هذا القسم."
         i={icon}
       />
 
       <section className="panel">
-        <h3>{title}</h3>
-
-        <Table
-          rows={[
-            [
-              "بيانات تجريبية",
-              "جاهز للربط",
-              "—",
-              "—",
-            ],
-            [
-              "—",
-              "—",
-              "—",
-              "—",
-            ],
-          ]}
-        />
+        <h3>وصول غير متاح</h3>
+        <p>هذه الصفحة لا تحتوي بيانات تجريبية. استخدم الأقسام المتاحة لحسابك من القائمة الجانبية.</p>
       </section>
     </div>
   );
