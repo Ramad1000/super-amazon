@@ -527,7 +527,7 @@ function Router({
   }
 
   if (page === "settings") {
-    return <Settings dark={dark} setDark={setDark} />;
+    return <Settings dark={dark} setDark={setDark} user={user} />;
   }
 
   return (
@@ -2134,14 +2134,25 @@ function Profile({ user }) {
   );
 }
 
-function Settings({ dark, setDark }) {
+function Settings({ dark, setDark, user }) {
   const [compact, setCompact] = useState(localStorage.getItem("sa_compact") === "true");
   const [message, setMessage] = useState("");
+  const [setupKey, setSetupKey] = useState("");
+  const [claiming, setClaiming] = useState(false);
   function toggleCompact() {
     const value = !compact;
     setCompact(value);
     localStorage.setItem("sa_compact", String(value));
     setMessage("تم حفظ الإعداد على هذا الجهاز.");
+  }
+  async function claimOwner() {
+    if (!setupKey.trim()) return setMessage("اكتب رمز إعداد Owner أولًا.");
+    setClaiming(true);
+    try {
+      await api("/auth/claim-owner", { method: "POST", body: JSON.stringify({ setupKey: setupKey.trim() }) });
+      setMessage("تم ربط الحساب كـ Owner. أعد فتح المنصة لتظهر لوحة Owner.");
+      setSetupKey("");
+    } catch (error) { setMessage(error.message); } finally { setClaiming(false); }
   }
   return <div className="page">
     <Title t="الإعدادات" d="خصّص تجربة استخدامك للمنصة." i="⚙" />
@@ -2150,6 +2161,11 @@ function Settings({ dark, setDark }) {
       <div className="setting-item"><div><b>العرض المختصر</b><span>حفظ تفضيل الواجهة على هذا الجهاز.</span></div><button className={compact ? "toggle on" : "toggle"} onClick={toggleCompact}><i /></button></div>
       <div className="setting-item static"><div><b>حماية الحساب</b><span>يتم تسجيل الدخول بواسطة هوية Telegram فقط.</span></div><strong>محمي</strong></div>
     </section>
+    {user.role !== "OWNER" && <section className="settings-card owner-setup">
+      <div><b>ربط حساب Owner</b><span>يُستخدم مرة واحدة لربط حساب Telegram الحالي بمالك المنصة.</span></div>
+      <input type="password" value={setupKey} onChange={(event) => setSetupKey(event.target.value)} placeholder="رمز إعداد Owner" />
+      <button className="primary" disabled={claiming} onClick={claimOwner}>{claiming ? "جاري الربط..." : "ربط هذا الحساب كـ Owner"}</button>
+    </section>}
     {message && <p className="settings-saved">✓ {message}</p>}
   </div>;
 }

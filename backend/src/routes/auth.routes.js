@@ -1,5 +1,7 @@
 const express = require("express");
+const { pool } = require("../db/database");
 const { auth } = require("../middleware/auth");
+const { OWNER_SETUP_KEY } = require("../config/env");
 const {
   beginTelegramAuthorization,
   completeTelegramAuthorization,
@@ -110,6 +112,37 @@ router.post("/logout", auth, async (req, res, next) => {
     res.status(204).end();
   } catch (error) {
     next(error);
+  }
+});
+
+router.post("/claim-owner", auth, async (req, res, next) => {
+  if (!OWNER_SETUP_KEY) {
+    return res.status(503).json({ success: false, message: "لم يتم إعداد رمز Owner في الخادم" });
+  }
+  if (String(req.body?.setupKey || "") !== OWNER_SETUP_KEY) {
+    return res.status(403).json({ success: false, message: "رمز Owner غير صحيح" });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query("SELECT id FROM users WHERE role = 'OWNER'::user_role FOR UPDATE");
+    if (existing.rows.length && existing.rows[0].id !== req.user.sub) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ success: false, message: "تم ربط حساب Owner بالفعل" });
+    }
+    const result = await client.query(
+      `UPDATE users SET role = 'OWNER'::user_role, account_type = 'ADMIN'::account_type,
+       status = 'ACTIVE'::user_status, is_verified = true, updated_at = NOW()
+       WHERE id = $1 RETURNING id, telegram_name, role, account_type`,
+      [req.user.sub]
+    );
+    await client.query("COMMIT");
+    return res.json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return next(error);
+  } finally {
+    client.release();
   }
 });
 

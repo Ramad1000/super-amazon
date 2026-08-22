@@ -306,7 +306,7 @@ async function loginWithTelegramWebApp(initData, metadata = {}) {
 
 async function getCurrentUser(userId) {
   const result = await query(
-    `SELECT id, telegram_username, telegram_name, account_type, role, status, is_verified, created_at
+    `SELECT id, telegram_id, telegram_username, telegram_name, account_type, role, status, is_verified, created_at
      FROM users WHERE id = $1 LIMIT 1`,
     [userId]
   );
