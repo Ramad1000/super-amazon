@@ -2130,6 +2130,8 @@ function Backup({ role }) {
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [channelId, setChannelId] = useState("");
+  const [savingChannel, setSavingChannel] = useState(false);
   const [message, setMessage] = useState("");
 
   async function load() {
@@ -2137,10 +2139,24 @@ function Backup({ role }) {
     try {
       const result = await api("/owner/backups");
       setBackups(result.backups || []);
+      if (role === "OWNER") {
+        const settings = await api("/owner/backup-settings");
+        setChannelId(settings.channelId || "");
+      }
     } catch (error) { setMessage(error.message); }
     finally { setLoading(false); }
   }
   useEffect(() => { load(); }, []);
+
+  async function saveChannel() {
+    if (!channelId.trim()) return setMessage("أدخل معرّف قناة النسخ الاحتياطي أولًا.");
+    setSavingChannel(true); setMessage("");
+    try {
+      await api("/owner/backup-settings", { method: "PUT", body: JSON.stringify({ channelId: channelId.trim() }) });
+      setMessage("تم حفظ قناة النسخ الاحتياطي بنجاح.");
+    } catch (error) { setMessage(error.message); }
+    finally { setSavingChannel(false); }
+  }
 
   async function createBackup() {
     setCreating(true); setMessage("");
@@ -2154,6 +2170,12 @@ function Backup({ role }) {
 
   return <div className="page">
     <Title t="النسخ الاحتياطي" d="نسخ فعلية مضغوطة من بيانات المنصة تُحفظ في قناة Telegram الخاصة." i="↻" />
+    {role === "OWNER" && <section className="panel" style={{ marginBottom: "18px" }}>
+      <h3>قناة النسخ الاحتياطي</h3>
+      <p>أدخل معرّف القناة الخاصة بصيغة <bdi dir="ltr">-100...</bdi>. أضف البوت مشرفًا بالقناة قبل إنشاء النسخة.</p>
+      <input value={channelId} onChange={(event) => setChannelId(event.target.value)} placeholder="-1001234567890" dir="ltr" />
+      <button className="secondary" disabled={savingChannel} onClick={saveChannel}>{savingChannel ? "جاري الحفظ..." : "حفظ القناة"}</button>
+    </section>}
     <section className="panel">
       <h3>نسخة احتياطية جديدة</h3>
       <p>يشمل النسخ المستخدمين والطلبات والمرفقات والمالية والشكاوى والإشعارات وسجل العمليات. لا تُنسخ الجلسات أو رموز الدخول.</p>

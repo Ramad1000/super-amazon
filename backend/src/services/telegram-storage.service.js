@@ -9,8 +9,8 @@ function storageError(message) {
   return error;
 }
 
-function configured() {
-  return Boolean(TELEGRAM_BOT_TOKEN && TELEGRAM_STORAGE_CHAT_ID);
+function configured(chatId = TELEGRAM_STORAGE_CHAT_ID) {
+  return Boolean(TELEGRAM_BOT_TOKEN && chatId);
 }
 
 async function telegramApi(method, options = {}) {
@@ -21,16 +21,16 @@ async function telegramApi(method, options = {}) {
   return data.result;
 }
 
-async function uploadToTelegram(file, caption = "") {
-  if (!configured()) throw storageError("لم يتم إعداد قناة تخزين Telegram في الخادم");
+async function uploadToTelegram(file, caption = "", chatId = TELEGRAM_STORAGE_CHAT_ID) {
+  if (!configured(chatId)) throw storageError("لم يتم إعداد قناة تخزين Telegram في الخادم");
   const form = new FormData();
-  form.set("chat_id", TELEGRAM_STORAGE_CHAT_ID);
+  form.set("chat_id", String(chatId));
   form.set("caption", String(caption).slice(0, 900));
   form.set("document", new Blob([fs.readFileSync(file.path)], { type: file.mimetype }), file.originalname);
   const message = await telegramApi("sendDocument", { method: "POST", body: form });
   const document = message.document;
   if (!document?.file_id) throw storageError("لم يعُد Telegram بمعرّف المرفق");
-  return { fileId: document.file_id, chatId: String(TELEGRAM_STORAGE_CHAT_ID), messageId: message.message_id };
+  return { fileId: document.file_id, chatId: String(chatId), messageId: message.message_id };
 }
 
 async function streamFromTelegram(fileId, mimeType, res) {

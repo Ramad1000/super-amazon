@@ -161,6 +161,30 @@ router.get("/backups", async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+router.get("/backup-settings", requireRoles("OWNER"), async (req, res, next) => {
+  try {
+    const result = await query("SELECT value FROM system_settings WHERE key = 'backup_telegram_channel'");
+    const channelId = result.rows[0]?.value?.channelId || "";
+    return res.json({ success: true, channelId });
+  } catch (error) { return next(error); }
+});
+
+router.put("/backup-settings", requireRoles("OWNER"), async (req, res, next) => {
+  const channelId = String(req.body?.channelId || "").trim();
+  if (!/^(?:-100\d{6,}|@[A-Za-z0-9_]{5,})$/.test(channelId)) {
+    return res.status(400).json({ success: false, message: "أدخل معرّف قناة صحيحًا: -100... للقناة الخاصة أو @username للقناة العامة" });
+  }
+  try {
+    await query(
+      `INSERT INTO system_settings (key, value, updated_by, updated_at)
+       VALUES ('backup_telegram_channel', $1::jsonb, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [JSON.stringify({ channelId }), req.user.sub]
+    );
+    return res.json({ success: true, channelId });
+  } catch (error) { return next(error); }
+});
+
 router.post("/backups", requireRoles("OWNER"), async (req, res, next) => {
   const startedAt = new Date();
   let backupId = null;
@@ -172,6 +196,14 @@ router.post("/backups", requireRoles("OWNER"), async (req, res, next) => {
       [startedAt]
     );
     backupId = created.rows[0].id;
+
+    const settings = await query("SELECT value FROM system_settings WHERE key = 'backup_telegram_channel'");
+    const backupChannelId = settings.rows[0]?.value?.channelId || "";
+    if (!backupChannelId) {
+      const error = new Error("لم يتم تحديد قناة النسخ الاحتياطي من لوحة Owner");
+      error.statusCode = 400;
+      throw error;
+    }
 
     const [users, requests, requestFiles, complaints, complaintFiles, brokerLifts, brokerPayments, announcements, notifications, auditLogs] = await Promise.all([
       query("SELECT id, telegram_id, telegram_username, telegram_name, account_type, role, status, is_verified, created_at, updated_at FROM users ORDER BY created_at"),
@@ -209,7 +241,7 @@ router.post("/backups", requireRoles("OWNER"), async (req, res, next) => {
       originalname: filename,
       mimetype: "application/gzip",
       size: compressed.length,
-    }, "Super Amazon • نسخة احتياطية مشفرة من بيانات المنصة");
+    }, "Super Amazon • نسخة احتياطية مشفرة من بيانات المنصة", backupChannelId);
 
     const saved = await query(
       `UPDATE backup_logs SET finished_at = NOW(), status = 'SUCCESS', file_size = $1, sha256_hash = $2,
