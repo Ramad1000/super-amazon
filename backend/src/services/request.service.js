@@ -37,7 +37,7 @@ async function createRequest({
   }
 
   if (!nationalId?.trim()) {
-    throw validationError("رقم المستمسك مطلوب");
+    throw validationError("رقم الأب مطلوب");
   }
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
@@ -279,7 +279,7 @@ async function correctRequest({
   files,
 }) {
   if (!fullName?.trim() || !fatherPhone?.trim() || !nationalId?.trim()) {
-    throw validationError("أكمل الاسم ورقم الهاتف ورقم المستمسك");
+    throw validationError("أكمل الاسم ورقم الهاتف ورقم الأب");
   }
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
     throw validationError("يجب تحديد موقع جغرافي صالح");

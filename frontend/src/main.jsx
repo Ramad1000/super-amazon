@@ -876,7 +876,7 @@ function Application({ user }) {
     }
 
     if (!nationalId.trim()) {
-      alert("اكتب رقم المستمسك");
+      alert("اكتب رقم الأب");
       return;
     }
 
@@ -1245,7 +1245,7 @@ function Application({ user }) {
         />
 
         <label>
-          رقم المستمسك
+          رقم الأب
         </label>
 
         <input
@@ -1255,7 +1255,7 @@ function Application({ user }) {
               e.target.value
             )
           }
-          placeholder="رقم المستمسك"
+          placeholder="رقم الأب"
         />
 
         <label>
@@ -1807,7 +1807,7 @@ function RequestReview({ request, loading, onBack, onReview }) {
   }, [request?.id]);
   const labels = { ID_FRONT: "المستمسك الأمامي", ID_BACK: "المستمسك الخلفي", FACE_PHOTO: "الصورة الشخصية", IDENTITY_VIDEO: "فيديو التحقق" };
   if (loading || !request) return <section className="panel"><p>جاري تحميل الطلب...</p></section>;
-  return <><button className="secondary" onClick={onBack}>← العودة إلى جميع الطلبات</button><section className="panel" style={{ marginTop: "15px" }}><h3>طلب #{request.request_number} • {request.applicant_type}</h3><Table rows={[["الاسم الكامل", request.full_name, "حالة الطلب", request.status],["رقم الهاتف", request.father_phone, "رقم المستمسك", request.national_id],["حساب Telegram", `@${request.telegram_username || "—"}`, "Telegram ID", request.telegram_id],["الموقع", `${Number(request.latitude).toFixed(5)}, ${Number(request.longitude).toFixed(5)}`, "دقة الموقع", request.location_accuracy ? `${request.location_accuracy} متر` : "—"],["تاريخ الإرسال", new Date(request.submitted_at).toLocaleString("ar-IQ"), "الحساب الحالي", request.account_type]]} /></section><section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والتحقق</h3>{message && <p className="error">{message}</p>}<div className="attachment-grid">{request.files.map((file) => <article className="attachment" key={file.id}><b>{labels[file.file_type] || file.file_type}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={labels[file.file_type]} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div></section><section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3>{request.status === "PENDING" ? <div className="inline-actions"><button className="primary" onClick={() => onReview(request.id, "APPROVED")}>موافقة وترقية الحساب</button><button className="secondary" onClick={() => onReview(request.id, "NEEDS_CORRECTION")}>طلب تصحيح</button><button className="secondary" onClick={() => onReview(request.id, "REJECTED_FINAL")}>رفض نهائي</button></div> : <p>هذا الطلب تمت مراجعته سابقًا: <b>{request.status}</b>{request.review_note ? ` — ${request.review_note}` : ""}</p>}</section></>;
+  return <><button className="secondary" onClick={onBack}>← العودة إلى جميع الطلبات</button><section className="panel" style={{ marginTop: "15px" }}><h3>طلب #{request.request_number} • {request.applicant_type}</h3><Table rows={[["الاسم الكامل", request.full_name, "حالة الطلب", request.status],["رقم الهاتف", request.father_phone, "رقم الأب", request.national_id],["حساب Telegram", `@${request.telegram_username || "—"}`, "Telegram ID", request.telegram_id],["الموقع", `${Number(request.latitude).toFixed(5)}, ${Number(request.longitude).toFixed(5)}`, "دقة الموقع", request.location_accuracy ? `${request.location_accuracy} متر` : "—"],["تاريخ الإرسال", new Date(request.submitted_at).toLocaleString("ar-IQ"), "الحساب الحالي", request.account_type]]} /></section><section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والتحقق</h3>{message && <p className="error">{message}</p>}<div className="attachment-grid">{request.files.map((file) => <article className="attachment" key={file.id}><b>{labels[file.file_type] || file.file_type}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={labels[file.file_type]} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div></section><section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3>{request.status === "PENDING" ? <div className="inline-actions"><button className="primary" onClick={() => onReview(request.id, "APPROVED")}>موافقة وترقية الحساب</button><button className="secondary" onClick={() => onReview(request.id, "NEEDS_CORRECTION")}>طلب تصحيح</button><button className="secondary" onClick={() => onReview(request.id, "REJECTED_FINAL")}>رفض نهائي</button></div> : <p>هذا الطلب تمت مراجعته سابقًا: <b>{request.status}</b>{request.review_note ? ` — ${request.review_note}` : ""}</p>}</section></>;
 }
 
 function Users() {
