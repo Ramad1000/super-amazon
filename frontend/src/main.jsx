@@ -496,7 +496,7 @@ function Router({
   }
 
   if (page === "users") {
-    return <Users />;
+    return <Users role={role} />;
   }
 
   if (page === "requests") {
@@ -1976,7 +1976,7 @@ function RequestReview({ request, loading, onBack, onReview }) {
   return <><button className="secondary" onClick={onBack}>← العودة إلى جميع الطلبات</button><section className="panel" style={{ marginTop: "15px" }}><h3>طلب #{request.request_number} • {accountLabel(request.applicant_type)}</h3><Table rows={[["الاسم الكامل", request.full_name, "حالة الطلب", request.status],["رقم الهاتف", request.father_phone, "رقم الأب", request.national_id],["حساب Telegram", `@${request.telegram_username || "—"}`, "Telegram ID", request.telegram_id],["الموقع", `${Number(request.latitude).toFixed(5)}, ${Number(request.longitude).toFixed(5)}`, "دقة الموقع", request.location_accuracy ? `${request.location_accuracy} متر` : "—"],["تاريخ الإرسال", new Date(request.submitted_at).toLocaleString("ar-IQ"), "الحساب الحالي", accountLabel(request.account_type)]]} /></section><section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والتحقق</h3>{message && <p className="error">{message}</p>}<div className="attachment-grid">{request.files.map((file) => <article className="attachment" key={file.id}><b>{labels[file.file_type] || file.file_type}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={labels[file.file_type]} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div></section><section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3>{request.status === "PENDING" ? <div className="inline-actions"><button className="primary" onClick={() => onReview(request.id, "APPROVED")}>موافقة وترقية الحساب</button><button className="secondary" onClick={() => onReview(request.id, "NEEDS_CORRECTION")}>طلب تصحيح</button><button className="secondary" onClick={() => onReview(request.id, "REJECTED_FINAL")}>رفض نهائي</button></div> : <p>هذا الطلب تمت مراجعته سابقًا: <b>{request.status}</b>{request.review_note ? ` — ${request.review_note}` : ""}</p>}</section></>;
 }
 
-function Users() {
+function Users({ role }) {
   const [data, setData] =
     useState([]);
 
@@ -2052,7 +2052,7 @@ function Users() {
                 </span>
 
                 <span>
-                  {user.account_type}
+                  {accountLabel(user.account_type)}
                 </span>
 
                 <span>
@@ -2073,6 +2073,21 @@ function Users() {
                   >
                     {user.status === "SUSPENDED" ? "تفعيل" : "إيقاف"}
                   </button>
+                  {role === "OWNER" && ["ADMIN", "BROKER"].includes(user.account_type) && (
+                    <button
+                      className="secondary"
+                      onClick={async () => {
+                        const typeName = user.account_type === "ADMIN" ? "ادمن" : "وسيط";
+                        if (!window.confirm(`تنزيل ${typeName} إلى عضو؟ لن تُحذف بياناته أو طلباته أو سجلاته.`)) return;
+                        try {
+                          const result = await api(`/owner/users/${user.id}/downgrade`, { method: "PATCH" });
+                          setData((items) => items.map((item) => item.id === user.id ? { ...item, ...result.user } : item));
+                        } catch (error) { alert(error.message); }
+                      }}
+                    >
+                      تنزيل إلى عضو
+                    </button>
+                  )}
                 </span>
               </div>
             ))}
@@ -2212,6 +2227,7 @@ function BrokerLedger({ mode }) {
 
 function OwnerFinance() {
   const [brokers, setBrokers] = useState([]);
+  const [archivedBrokers, setArchivedBrokers] = useState([]);
   const [brokerId, setBrokerId] = useState("");
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("CASH");
@@ -2223,7 +2239,7 @@ function OwnerFinance() {
   const [payments, setPayments] = useState([]);
   const [message, setMessage] = useState("");
   async function load() {
-    try { const [brokerResult, paymentResult] = await Promise.all([api("/owner/finance/brokers"), api("/owner/finance/payments")]); setBrokers(brokerResult.brokers || []); setPayments(paymentResult.payments || []); } catch (error) { setMessage(error.message); }
+    try { const [brokerResult, archivedResult, paymentResult] = await Promise.all([api("/owner/finance/brokers"), api("/owner/finance/archived-brokers"), api("/owner/finance/payments")]); setBrokers(brokerResult.brokers || []); setArchivedBrokers(archivedResult.brokers || []); setPayments(paymentResult.payments || []); } catch (error) { setMessage(error.message); }
   }
   useEffect(() => {
     load();
@@ -2259,6 +2275,7 @@ function OwnerFinance() {
     <section className="panel"><h3>إضافة رفعة مالية</h3><select value={brokerId} onChange={(event) => setBrokerId(event.target.value)}><option value="">اختر الوسيط</option>{brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.telegram_name || broker.telegram_username || "وسيط"}</option>)}</select><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="numeric" placeholder="المبلغ بالدينار العراقي" /><div className="seg"><button className={method === "CASH" ? "on" : ""} onClick={() => setMethod("CASH")}>نقدي</button><button className={method === "INSTALLMENTS" ? "on" : ""} onClick={() => setMethod("INSTALLMENTS")}>أقساط</button></div><button className="primary" onClick={addLift}>إضافة الرفعة</button></section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>تسجيل دفعة لوسيط</h3><select value={paymentBrokerId} onChange={(event) => loadLifts(event.target.value)}><option value="">اختر الوسيط</option>{brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.telegram_name || broker.telegram_username || "وسيط"}</option>)}</select><select value={liftId} disabled={!paymentBrokerId} onChange={(event) => setLiftId(event.target.value)}><option value="">اختر الرفعة</option>{lifts.filter((lift) => Number(lift.total_amount) > Number(lift.paid_amount)).map((lift) => <option key={lift.id} value={lift.id}>متبقي {Number(lift.total_amount - lift.paid_amount).toLocaleString("ar-IQ")} د.ع</option>)}</select><input value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} inputMode="numeric" placeholder="قيمة الدفعة بالدينار العراقي" /><textarea rows="3" value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="ملاحظة اختيارية" /><button className="secondary" onClick={addPayment}>تسجيل الدفعة</button>{message && <p className="settings-saved">{message}</p>}</section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>أرصدة الوسطاء</h3><Table rows={brokers.length ? brokers.map((broker) => [broker.telegram_name || "—", Number(broker.total).toLocaleString("ar-IQ"), Number(broker.paid).toLocaleString("ar-IQ"), (Number(broker.total) - Number(broker.paid)).toLocaleString("ar-IQ")]) : [["لا يوجد وسطاء", "—", "—", "—"]]} /></section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>أرشيف الوسطاء السابقين</h3><p>هذه الحسابات نُزّلت إلى عضو؛ لا تظهر في قوائم الوسطاء النشطة، وسجلها المالي محفوظ للرجوع إليه.</p><Table rows={archivedBrokers.length ? archivedBrokers.map((broker) => [broker.telegram_name || broker.telegram_username || "—", accountLabel(broker.account_type), Number(broker.total).toLocaleString("ar-IQ"), (Number(broker.total) - Number(broker.paid)).toLocaleString("ar-IQ")]) : [["لا يوجد أرشيف مالي لوسطاء سابقين", "—", "—", "—"]]} /></section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>آخر الدفعات المسجلة</h3>{payments.length ? <div className="table"><div className="tr head"><span>الوسيط</span><span>المبلغ</span><span>التاريخ</span><span>إجراء</span></div>{payments.map((payment) => <div className="tr" key={payment.id}><span>{payment.broker_name || payment.broker_username || "—"}<br /><small>{payment.note || "بدون ملاحظة"}</small></span><span>{Number(payment.amount).toLocaleString("ar-IQ")} د.ع</span><span>{new Date(payment.payment_date).toLocaleString("ar-IQ")}</span><span><button className="secondary" onClick={() => reversePayment(payment.id)}>إلغاء الدفعة</button></span></div>)}</div> : <p>لا توجد دفعات مسجلة بعد.</p>}</section>
   </div>;
 }

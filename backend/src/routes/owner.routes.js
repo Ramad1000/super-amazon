@@ -361,6 +361,22 @@ router.get("/finance/brokers", requireOwnerPermission("FINANCE"), async (req, re
   } catch (error) { return next(error); }
 });
 
+// Former brokers remain in the database, but must not appear in the active
+// broker selectors after their account has been downgraded to MEMBER.
+router.get("/finance/archived-brokers", requireOwnerPermission("FINANCE"), async (req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT u.id, u.telegram_name, u.telegram_username, u.account_type,
+       COALESCE(SUM(l.total_amount),0) AS total, COALESCE(SUM(l.paid_amount),0) AS paid
+       FROM users u JOIN broker_lifts l ON l.broker_id = u.id
+       WHERE u.account_type <> 'BROKER'::account_type
+       GROUP BY u.id, u.telegram_name, u.telegram_username, u.account_type
+       ORDER BY MAX(l.created_at) DESC`
+    );
+    return res.json({ success: true, brokers: result.rows });
+  } catch (error) { return next(error); }
+});
+
 router.get("/finance/brokers/:id/lifts", requireOwnerPermission("FINANCE"), async (req, res, next) => {
   try {
     const result = await query(
@@ -396,6 +412,11 @@ router.post("/finance/lifts", requireOwnerPermission("FINANCE"), async (req, res
     return res.status(400).json({ success: false, message: "بيانات الرفعة غير صالحة" });
   }
   try {
+    const broker = await query(
+      `SELECT id FROM users WHERE id = $1 AND account_type = 'BROKER'::account_type AND status = 'ACTIVE'::user_status`,
+      [brokerId]
+    );
+    if (!broker.rows.length) return res.status(400).json({ success: false, message: "لا يمكن إضافة رفعة إلا لوسيط نشط" });
     const result = await query(
       `INSERT INTO broker_lifts (broker_id, total_amount, payment_method) VALUES ($1,$2,$3) RETURNING *`,
       [brokerId, amount, paymentMethod]
@@ -415,6 +436,11 @@ router.post("/finance/payments", requireOwnerPermission("FINANCE"), async (req, 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const broker = await client.query(
+      `SELECT id FROM users WHERE id = $1 AND account_type = 'BROKER'::account_type AND status = 'ACTIVE'::user_status FOR UPDATE`,
+      [brokerId]
+    );
+    if (!broker.rows.length) throw new Error("لا يمكن تسجيل دفعة إلا لوسيط نشط");
     if (liftId) {
       const lift = await client.query("SELECT * FROM broker_lifts WHERE id = $1 AND broker_id = $2 FOR UPDATE", [liftId, brokerId]);
       if (!lift.rows.length) throw new Error("الرفعة غير موجودة");
@@ -470,6 +496,39 @@ router.patch("/users/:id/status", requireOwnerPermission("USERS"), async (req, r
       status === "SUSPENDED" ? "تم إيقاف الحساب من الإدارة. تواصل مع الدعم عند الحاجة." : "تم تفعيل الحساب من الإدارة.",
     );
     return res.json({ success: true, user });
+  } catch (error) { return next(error); }
+});
+
+// This is deliberately Owner-only: it removes an ADMIN/BROKER from active
+// role-based lists without deleting their account, applications, complaints,
+// financial history, or audit trail.
+router.patch("/users/:id/downgrade", requireRoles("OWNER"), async (req, res, next) => {
+  if (req.params.id === req.user.sub) {
+    return res.status(400).json({ success: false, message: "لا يمكنك تنزيل حساب Owner" });
+  }
+  try {
+    const existing = await query(
+      "SELECT id, telegram_name, telegram_username, account_type, role FROM users WHERE id = $1",
+      [req.params.id]
+    );
+    if (!existing.rows.length) return res.status(404).json({ success: false, message: "المستخدم غير موجود" });
+    const previous = existing.rows[0];
+    if (!["ADMIN", "BROKER"].includes(previous.account_type) || previous.role !== "MEMBER") {
+      return res.status(400).json({ success: false, message: "يمكن تنزيل حسابات الادمن أو الوسطاء فقط" });
+    }
+    const result = await query(
+      `UPDATE users SET account_type = 'MEMBER'::account_type, updated_at = NOW() WHERE id = $1
+       RETURNING id, telegram_name, telegram_username, account_type, role, status, is_verified`,
+      [previous.id]
+    );
+    const user = result.rows[0];
+    await query(
+      `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
+       VALUES ($1,'DOWNGRADE_ACCOUNT','USER',$2,$3::jsonb)`,
+      [req.user.sub, user.id, JSON.stringify({ fromAccountType: previous.account_type, toAccountType: "MEMBER", preservedHistory: true })]
+    );
+    await notifyUser(user.id, "تم تنزيل نوع الحساب", `تم تحويل حسابك من ${previous.account_type === "ADMIN" ? "ادمن" : "وسيط"} إلى عضو. جميع بياناتك السابقة محفوظة.`);
+    return res.json({ success: true, user, previousAccountType: previous.account_type });
   } catch (error) { return next(error); }
 });
 
