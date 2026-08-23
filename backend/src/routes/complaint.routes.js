@@ -145,12 +145,15 @@ router.post("/", upload.array("attachments", 4), async (req, res, next) => {
       } catch (error) {
         // The complaint itself is valuable evidence. Never remove it merely
         // because Telegram rejected one attachment or its DB link failed.
-        attachmentErrors.push(file.originalname);
+        attachmentErrors.push({
+          name: file.originalname,
+          reason: error.publicMessage || "تعذر حفظ سجل المرفق في النظام.",
+        });
       }
     }
     let attachmentWarning = "";
     if (attachmentErrors.length) {
-      attachmentWarning = `تم تسجيل الشكوى، لكن تعذر ربط ${attachmentErrors.length} من المرفقات بقناة Telegram. راجع إعداد القناة أو أعد رفع الملف.`;
+      attachmentWarning = `تم تسجيل الشكوى، لكن تعذر ربط ${attachmentErrors.length} من المرفقات بقناة Telegram. ${attachmentErrors[0].reason}`;
       await query("UPDATE complaints SET attachment_warning = $1, updated_at = NOW() WHERE id = $2", [attachmentWarning, complaintId]);
       await query(
         `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
