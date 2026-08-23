@@ -1534,7 +1534,7 @@ function MemberComplaints() {
       form.append("body", body.trim());
       attachments.forEach((file) => form.append("attachments", file));
 
-      await api("/complaints", {
+      const result = await api("/complaints", {
         method: "POST",
         body: form,
       });
@@ -1545,9 +1545,7 @@ function MemberComplaints() {
 
       await loadComplaints();
 
-      alert(
-        "تم إرسال الشكوى بنجاح"
-      );
+      alert(result.attachmentWarning || "تم إرسال الشكوى بنجاح");
     } catch (error) {
       alert(error.message);
     } finally {
@@ -1728,6 +1726,7 @@ function MemberComplaints() {
                 </small>
 
                 <p>{item.body}</p>
+                {item.attachment_warning && <small className="error">{item.attachment_warning}</small>}
                 <button className="secondary" onClick={() => setSelectedId(item.id)}>فتح التفاصيل والمراسلات</button>
               </div>
             ))
@@ -1741,7 +1740,7 @@ function MemberComplaints() {
 function MemberComplaintDetail({ complaint, error, onBack, onReload }) {
   if (error) return <section className="panel"><p className="error">{error}</p><button className="secondary" onClick={onBack}>عودة</button></section>;
   if (!complaint) return <section className="panel"><p>جاري تحميل الشكوى...</p></section>;
-  return <><button className="secondary" onClick={onBack}>← العودة إلى شكاواي</button><section className="panel" style={{ marginTop: "15px" }}><h3>تفاصيل الشكوى</h3><Table rows={[["ضد", complaint.target_name || "—", "نوع الحساب", accountLabel(complaint.target_type)], ["الحالة", complaint.status, "التاريخ", new Date(complaint.created_at).toLocaleString("ar-IQ")]]} /><p style={{ whiteSpace: "pre-wrap" }}>{complaint.body}</p>{complaint.owner_note && <div className="notice"><b>ملاحظة الإدارة</b><p>{complaint.owner_note}</p></div>}</section><ComplaintConversation complaint={complaint} onReload={onReload} /></>;
+  return <><button className="secondary" onClick={onBack}>← العودة إلى شكاواي</button><section className="panel" style={{ marginTop: "15px" }}><h3>تفاصيل الشكوى</h3><Table rows={[["ضد", complaint.target_name || "—", "نوع الحساب", accountLabel(complaint.target_type)], ["الحالة", complaint.status, "التاريخ", new Date(complaint.created_at).toLocaleString("ar-IQ")]]} /><p style={{ whiteSpace: "pre-wrap" }}>{complaint.body}</p>{complaint.attachment_warning && <div className="notice"><b>تنبيه بخصوص المرفقات</b><p>{complaint.attachment_warning}</p></div>}{complaint.owner_note && <div className="notice"><b>ملاحظة الإدارة</b><p>{complaint.owner_note}</p></div>}</section><ComplaintConversation complaint={complaint} onReload={onReload} /></>;
 }
 
 function Notifications() {
@@ -1892,7 +1891,7 @@ function ComplaintReview({ complaint, loading, role, onBack, onReview, onReload 
       ["المشكو عليه", complaint.target_name || "—", "نوع الحساب", accountLabel(complaint.target_type)],
       ["حساب Telegram", complaint.target_username ? `@${complaint.target_username}` : "—", "Telegram ID", complaint.target_telegram_id || "—"],
       ["تاريخ الإرسال", new Date(complaint.created_at).toLocaleString("ar-IQ"), "آخر تحديث", new Date(complaint.updated_at).toLocaleString("ar-IQ")],
-    ]} /><div style={{ marginTop: "18px" }}><h3>تفاصيل الشكوى</h3><p style={{ whiteSpace: "pre-wrap" }}>{complaint.body}</p></div>{complaint.owner_note && <div className="notice" style={{ marginTop: "15px" }}><b>ملاحظة المراجعة السابقة</b><p>{complaint.owner_note}</p></div>}</section>
+    ]} /><div style={{ marginTop: "18px" }}><h3>تفاصيل الشكوى</h3><p style={{ whiteSpace: "pre-wrap" }}>{complaint.body}</p></div>{complaint.attachment_warning && <div className="notice" style={{ marginTop: "15px" }}><b>تنبيه بخصوص المرفقات</b><p>{complaint.attachment_warning}</p></div>}{complaint.owner_note && <div className="notice" style={{ marginTop: "15px" }}><b>ملاحظة المراجعة السابقة</b><p>{complaint.owner_note}</p></div>}</section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والأدلة</h3>{error && <p className="error">{error}</p>}{complaint.files.length === 0 ? <p>لم يتم إرفاق ملفات مع هذه الشكوى.</p> : <div className="attachment-grid">{complaint.files.map((file) => <article className="attachment" key={file.id}><b>{file.mime_type.startsWith("video/") ? "فيديو دليل" : "صورة دليل"}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={file.original_name} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div>}</section>
     {role === "OWNER" && <section className="panel" style={{ marginTop: "18px" }}><h3>إسناد المراجعة</h3><select value={complaint.assigned_to || ""} onChange={async (event) => { try { await api(`/owner/complaints/${complaint.id}/assignment`, { method: "PATCH", body: JSON.stringify({ assistantId: event.target.value || null }) }); onReload(); } catch (assignmentError) { setError(assignmentError.message); } }}><option value="">Owner يتابعها مباشرة</option>{(complaint.assistants || []).map((assistant) => <option key={assistant.id} value={assistant.id}>{assistant.telegram_name || assistant.telegram_username || "مساعد"}</option>)}</select>{complaint.assignee_name && <small>مُسندة إلى: {complaint.assignee_name}</small>}</section>}
     <ComplaintConversation complaint={complaint} owner onReload={onReload} />

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS complaints(id uuid PRIMARY KEY DEFAULT gen_random_uui
 CREATE TABLE IF NOT EXISTS complaint_files(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),complaint_id uuid NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,original_name text NOT NULL,stored_name text NOT NULL,mime_type varchar(150) NOT NULL,file_size bigint NOT NULL,storage_path text NOT NULL,sha256_hash char(64) NOT NULL,telegram_file_id text,telegram_chat_id text,created_at timestamptz NOT NULL DEFAULT now());
 ALTER TABLE complaints ADD COLUMN IF NOT EXISTS assigned_to uuid REFERENCES users(id);
 ALTER TABLE complaints ADD COLUMN IF NOT EXISTS due_at timestamptz;
+ALTER TABLE complaints ADD COLUMN IF NOT EXISTS attachment_warning text;
 CREATE TABLE IF NOT EXISTS complaint_messages(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),complaint_id uuid NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,sender_id uuid NOT NULL REFERENCES users(id),body text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS complaint_messages_complaint_created_idx ON complaint_messages(complaint_id, created_at);
 ALTER TABLE request_files ADD COLUMN IF NOT EXISTS telegram_file_id text;

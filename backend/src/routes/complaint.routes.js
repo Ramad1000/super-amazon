@@ -131,14 +131,31 @@ router.post("/", upload.array("attachments", 4), async (req, res, next) => {
       [req.user.sub, targetUserId, targetType, body]
     );
     complaintId = created.rows[0].id;
+    const attachmentErrors = [];
     for (const file of req.files || []) {
-      const mimeType = normalizedMimeType(file);
-      const telegramFile = await uploadToTelegram({ ...file, mimetype: mimeType }, `Super Amazon • شكوى جديدة • ${targetType}`);
-      const hash = crypto.createHash("sha256").update(fs.readFileSync(file.path)).digest("hex");
+      try {
+        const mimeType = normalizedMimeType(file);
+        const telegramFile = await uploadToTelegram({ ...file, mimetype: mimeType }, `Super Amazon • شكوى جديدة • ${targetType}`);
+        const hash = crypto.createHash("sha256").update(fs.readFileSync(file.path)).digest("hex");
+        await query(
+          `INSERT INTO complaint_files (complaint_id, original_name, stored_name, mime_type, file_size, storage_path, sha256_hash, telegram_file_id, telegram_chat_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [created.rows[0].id, file.originalname, file.filename, mimeType, file.size, file.path, hash, telegramFile.fileId, telegramFile.chatId]
+        );
+      } catch (error) {
+        // The complaint itself is valuable evidence. Never remove it merely
+        // because Telegram rejected one attachment or its DB link failed.
+        attachmentErrors.push(file.originalname);
+      }
+    }
+    let attachmentWarning = "";
+    if (attachmentErrors.length) {
+      attachmentWarning = `تم تسجيل الشكوى، لكن تعذر ربط ${attachmentErrors.length} من المرفقات بقناة Telegram. راجع إعداد القناة أو أعد رفع الملف.`;
+      await query("UPDATE complaints SET attachment_warning = $1, updated_at = NOW() WHERE id = $2", [attachmentWarning, complaintId]);
       await query(
-        `INSERT INTO complaint_files (complaint_id, original_name, stored_name, mime_type, file_size, storage_path, sha256_hash, telegram_file_id, telegram_chat_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [created.rows[0].id, file.originalname, file.filename, mimeType, file.size, file.path, hash, telegramFile.fileId, telegramFile.chatId]
+        `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
+         VALUES ($1, 'COMPLAINT_ATTACHMENT_WARNING', 'COMPLAINT', $2, $3::jsonb)`,
+        [req.user.sub, complaintId, JSON.stringify({ failedFiles: attachmentErrors })]
       );
     }
     await query(
@@ -149,12 +166,15 @@ router.post("/", upload.array("attachments", 4), async (req, res, next) => {
     await notifyUser(req.user.sub, "تم استلام الشكوى", "تم إرسال شكواك إلى الإدارة وسيتم إشعارك عند تحديث حالتها.");
     await notifyRole("OWNER", "شكوى جديدة", `تم استلام شكوى جديدة ضد حساب ${targetType}.`);
     await notifyAssistantsWithPermission("COMPLAINTS", "شكوى جديدة", `تم استلام شكوى جديدة ضد حساب ${targetType}.`);
-    return res.status(201).json({ success: true, complaint: created.rows[0] });
+    return res.status(201).json({ success: true, complaint: { ...created.rows[0], attachment_warning: attachmentWarning || null }, attachmentWarning: attachmentWarning || null });
   } catch (error) {
-    if (complaintId) {
-      await query("DELETE FROM complaints WHERE id = $1", [complaintId]).catch(() => {});
-    }
     return next(error);
+  } finally {
+    // Telegram is the durable storage. The temporary Render disk must not
+    // become the only copy or fill up after successful submissions.
+    for (const file of req.files || []) {
+      try { fs.unlinkSync(file.path); } catch {}
+    }
   }
 });
 
