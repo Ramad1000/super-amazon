@@ -802,10 +802,6 @@ function Application({ user }) {
   const [sending, setSending] =
     useState(false);
 
-  const [selectedId, setSelectedId] = useState("");
-  const [selected, setSelected] = useState(null);
-  const [detailError, setDetailError] = useState("");
-
   const [editing, setEditing] =
     useState(false);
 
@@ -1463,6 +1459,10 @@ function MemberComplaints() {
 
   const [sending, setSending] =
     useState(false);
+
+  const [selectedId, setSelectedId] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [detailError, setDetailError] = useState("");
 
   useEffect(() => {
     loadComplaints();
