@@ -24,6 +24,23 @@ async function telegramApi(method, options = {}) {
   return data.result;
 }
 
+function extractTelegramFileId(message) {
+  // Telegram may return a document, but depending on the sent media type it
+  // can also return video/photo/animation/audio. Keep the storage layer
+  // compatible with all valid complaint evidence formats.
+  const candidates = [
+    message?.document,
+    message?.video,
+    message?.animation,
+    message?.audio,
+    message?.voice,
+    message?.video_note,
+    message?.sticker,
+  ];
+  if (Array.isArray(message?.photo) && message.photo.length) candidates.push(message.photo.at(-1));
+  return candidates.find((file) => file?.file_id)?.file_id || null;
+}
+
 async function uploadToTelegram(file, caption = "", chatId = TELEGRAM_STORAGE_CHAT_ID) {
   if (!configured(chatId)) throw storageError("لم يتم إعداد قناة تخزين Telegram في الخادم");
   const form = new FormData();
@@ -31,9 +48,12 @@ async function uploadToTelegram(file, caption = "", chatId = TELEGRAM_STORAGE_CH
   form.set("caption", String(caption).slice(0, 900));
   form.set("document", new Blob([fs.readFileSync(file.path)], { type: file.mimetype }), file.originalname);
   const message = await telegramApi("sendDocument", { method: "POST", body: form });
-  const document = message.document;
-  if (!document?.file_id) throw storageError("لم يعُد Telegram بمعرّف المرفق");
-  return { fileId: document.file_id, chatId: String(chatId), messageId: message.message_id };
+  const fileId = extractTelegramFileId(message);
+  if (!fileId) {
+    const messageFields = Object.keys(message || {}).join(", ") || "لا توجد بيانات رسالة";
+    throw storageError(`لم يعُد Telegram بمعرّف المرفق (حقول الاستجابة: ${messageFields})`);
+  }
+  return { fileId, chatId: String(chatId), messageId: message.message_id };
 }
 
 async function streamFromTelegram(fileId, mimeType, res) {
