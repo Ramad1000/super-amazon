@@ -520,7 +520,7 @@ function Router({
   }
 
   if (page === "system") {
-    return <SystemStatus />;
+    return <SystemStatus role={role} />;
   }
 
   if (page === "profile") {
@@ -2322,11 +2322,12 @@ function AuditLog() {
   return <div className="page"><Title t="سجل العمليات" d="تتبّع المراجعات والتغييرات الإدارية الأخيرة." i="◌" />{error && <p className="error">{error}</p>}<section className="panel"><label>البحث في السجل</label><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="اسم المنفذ أو نوع العملية أو رقم الهدف" /><select value={action} onChange={(event) => { setAction(event.target.value); setPage(1); }}><option value="">كل العمليات</option><option value="REVIEW_APPLICATION">مراجعة طلب</option><option value="CREATE_COMPLAINT">شكوى جديدة</option><option value="RECORD_BROKER_PAYMENT">دفعة مالية</option><option value="CREATE_BACKUP">نسخة احتياطية</option></select>{logs.length ? logs.map((log) => <article className="complaint-row" key={log.id}><b>{log.action.replaceAll("_", " ")}</b><p>{log.telegram_name || log.telegram_username || "النظام"}{log.target_type ? ` • ${log.target_type}` : ""}{log.target_id ? ` • ${log.target_id.slice(0, 8)}` : ""}</p><small>{new Date(log.created_at).toLocaleString("ar-IQ")}</small></article>) : <p>لا توجد عمليات مطابقة.</p>}{pagination && <div className="inline-actions"><button className="secondary" disabled={pagination.page <= 1} onClick={() => setPage((value) => value - 1)}>السابق</button><small>صفحة {pagination.page} من {pagination.pages} • {pagination.total} عملية</small><button className="secondary" disabled={pagination.page >= pagination.pages} onClick={() => setPage((value) => value + 1)}>التالي</button></div>}</section></div>;
 }
 
-function SystemStatus() {
-  const [system, setSystem] = useState(null); const [error, setError] = useState("");
+function SystemStatus({ role }) {
+  const [system, setSystem] = useState(null); const [error, setError] = useState(""); const [storageTest, setStorageTest] = useState(""); const [testingStorage, setTestingStorage] = useState(false);
   async function load() { setError(""); try { const result = await api("/owner/system"); setSystem(result.system); } catch (err) { setError(err.message); } }
   useEffect(() => { load(); }, []);
-  return <div className="page"><Title t="حالة النظام" d="فحص مباشر للخادم وقاعدة البيانات." i="▦" />{error && <p className="error">{error}</p>}<section className="panel">{!system ? <p>جاري الفحص...</p> : <><div className="stats"><div className="stat"><small>واجهة API</small><strong>✓</strong><span>تعمل</span></div><div className="stat"><small>قاعدة البيانات</small><strong>✓</strong><span>{system.databaseLatencyMs} ms</span></div><div className="stat"><small>تخزين Telegram</small><strong>{system.telegramStorage === "CONFIGURED" ? "✓" : "!"}</strong><span>{system.telegramStorage === "CONFIGURED" ? "مُعد" : "غير مُعد"}</span></div><div className="stat"><small>وقت التشغيل</small><strong>{Math.floor(system.uptimeSeconds / 60)}</strong><span>دقيقة</span></div></div><p>وقت الخادم: {new Date(system.serverTime).toLocaleString("ar-IQ")}</p><button className="secondary" onClick={load}>إعادة الفحص</button></>}</section></div>;
+  async function testStorage() { setTestingStorage(true); setStorageTest(""); try { const result = await api("/owner/system/test-storage", { method: "POST" }); const item = result.storage; setStorageTest(`نجح الاتصال: ${item.botUsername} داخل «${item.chatTitle}» وحالته ${item.botStatus}${item.canPost ? " ويمكنه الإرسال." : " ولا يملك صلاحية الإرسال."}`); } catch (testError) { setStorageTest(testError.message); } finally { setTestingStorage(false); } }
+  return <div className="page"><Title t="حالة النظام" d="فحص مباشر للخادم وقاعدة البيانات." i="▦" />{error && <p className="error">{error}</p>}<section className="panel">{!system ? <p>جاري الفحص...</p> : <><div className="stats"><div className="stat"><small>واجهة API</small><strong>✓</strong><span>تعمل</span></div><div className="stat"><small>قاعدة البيانات</small><strong>✓</strong><span>{system.databaseLatencyMs} ms</span></div><div className="stat"><small>تخزين Telegram</small><strong>{system.telegramStorage === "CONFIGURED" ? "✓" : "!"}</strong><span>{system.telegramStorage === "CONFIGURED" ? "مُعد" : "غير مُعد"}</span></div><div className="stat"><small>وقت التشغيل</small><strong>{Math.floor(system.uptimeSeconds / 60)}</strong><span>دقيقة</span></div></div><p>وقت الخادم: {new Date(system.serverTime).toLocaleString("ar-IQ")}</p><button className="secondary" onClick={load}>إعادة الفحص</button>{role === "OWNER" && <button className="secondary" disabled={testingStorage} onClick={testStorage}>{testingStorage ? "جاري اختبار قناة Telegram..." : "اختبار قناة المرفقات"}</button>}{storageTest && <p className={storageTest.startsWith("نجح") ? "settings-saved" : "error"}>{storageTest}</p>}</>}</section></div>;
 }
 
 function Backup({ role }) {

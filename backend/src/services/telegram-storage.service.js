@@ -46,4 +46,18 @@ async function streamFromTelegram(fileId, mimeType, res) {
   Readable.fromWeb(response.body).pipe(res);
 }
 
-module.exports = { configured, uploadToTelegram, streamFromTelegram };
+async function inspectStorage() {
+  if (!configured()) throw storageError("لم يتم إعداد TELEGRAM_BOT_TOKEN أو TELEGRAM_STORAGE_CHAT_ID");
+  const bot = await telegramApi("getMe");
+  const encodedChatId = encodeURIComponent(String(TELEGRAM_STORAGE_CHAT_ID));
+  const chat = await telegramApi(`getChat?chat_id=${encodedChatId}`);
+  const membership = await telegramApi(`getChatMember?chat_id=${encodedChatId}&user_id=${bot.id}`);
+  return {
+    botUsername: bot.username ? `@${bot.username}` : bot.first_name || "البوت",
+    chatTitle: chat.title || chat.username || "القناة",
+    botStatus: membership.status || "unknown",
+    canPost: ["administrator", "creator", "owner"].includes(membership.status),
+  };
+}
+
+module.exports = { configured, uploadToTelegram, streamFromTelegram, inspectStorage };

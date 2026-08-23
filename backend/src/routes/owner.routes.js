@@ -6,7 +6,7 @@ const zlib = require("zlib");
 const { pool, query } = require("../db/database");
 const { auth, requireRoles } = require("../middleware/auth");
 const { notifyUser } = require("../services/notification.service");
-const { streamFromTelegram, configured: telegramStorageConfigured } = require("../services/telegram-storage.service");
+const { streamFromTelegram, configured: telegramStorageConfigured, inspectStorage } = require("../services/telegram-storage.service");
 
 const router = express.Router();
 router.use(auth, requireRoles("OWNER", "OWNER_ASSISTANT"));
@@ -202,6 +202,13 @@ router.get("/system", requireOwnerPermission("SYSTEM"), async (req, res, next) =
       uptimeSeconds: Math.floor(process.uptime()), node: process.version, serverTime: new Date().toISOString(),
       telegramStorage: telegramStorageConfigured() ? "CONFIGURED" : "NOT_CONFIGURED",
     }});
+  } catch (error) { return next(error); }
+});
+
+router.post("/system/test-storage", requireRoles("OWNER"), async (req, res, next) => {
+  try {
+    const storage = await inspectStorage();
+    return res.json({ success: true, storage });
   } catch (error) { return next(error); }
 });
 
