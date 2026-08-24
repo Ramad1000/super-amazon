@@ -2116,7 +2116,19 @@ function Announcements({ role }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [important, setImportant] = useState(false);
+  const [category, setCategory] = useState("GENERAL");
+  const [audience, setAudience] = useState("ALL");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("ALL");
   const [sending, setSending] = useState(false);
+
+  const categories = {
+    GENERAL: ["عام", "▤"],
+    RULES: ["القوانين", "⚖"],
+    SAFETY: ["السلامة والأمان", "◈"],
+    FINANCE: ["المالية", "₿"],
+    UPDATES: ["تحديثات المنصة", "↻"],
+  };
 
   async function loadAnnouncements() {
     try {
@@ -2130,32 +2142,28 @@ function Announcements({ role }) {
     if (!title.trim() || !body.trim()) return alert("اكتب العنوان والمحتوى");
     setSending(true);
     try {
-      await api("/announcements/manage", { method: "POST", body: JSON.stringify({ title: title.trim(), body: body.trim(), important, published: true }) });
-      setTitle(""); setBody(""); setImportant(false); await loadAnnouncements();
+      await api("/announcements/manage", { method: "POST", body: JSON.stringify({ title: title.trim(), body: body.trim(), category, audience, important, published: true }) });
+      setTitle(""); setBody(""); setImportant(false); setCategory("GENERAL"); setAudience("ALL"); await loadAnnouncements();
     } catch (error) { alert(error.message); } finally { setSending(false); }
   }
 
-  return (
-    <div className="page">
-      <Title t={owner ? "الإعلانات والتوجيهات" : "القوانين والتوجيهات"} d="آخر تحديثات وتعليمات المنصة." i="▤" />
-      {owner && <section className="panel" style={{ marginBottom: "18px" }}>
-        <h3>إعلان جديد</h3>
-        <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="عنوان الإعلان" />
-        <textarea rows="5" value={body} onChange={(event) => setBody(event.target.value)} placeholder="محتوى الإعلان" />
-        <label><input type="checkbox" checked={important} onChange={(event) => setImportant(event.target.checked)} /> إعلان مهم</label>
-        <button className="primary" disabled={sending} onClick={createAnnouncement}>{sending ? "جاري النشر..." : "نشر الإعلان"}</button>
-      </section>}
-      <section className="panel">
-        {items.length === 0 ? <p>لا توجد إعلانات حاليًا.</p> : items.map((item) => (
-          <article className="complaint-row" key={item.id}>
-            <b>{item.important ? "مهم • " : ""}{item.title}</b>
-            <p>{item.body}</p>
-            <small>{new Date(item.created_at).toLocaleString("ar-IQ")}{owner ? ` • ${item.published ? "منشور" : "مسودة"}` : ""}</small>
-          </article>
-        ))}
-      </section>
-    </div>
-  );
+  const visibleItems = items.filter((item) => {
+    const matchesFilter = filter === "ALL" || item.category === filter;
+    const needle = search.trim().toLocaleLowerCase();
+    return matchesFilter && (!needle || `${item.title} ${item.body}`.toLocaleLowerCase().includes(needle));
+  });
+  return <div className="page">
+    <Title t={owner ? "مركز الإعلانات والتوجيهات" : "القوانين والتوجيهات"} d="مرجع موحّد للتعليمات والسياسات والتحديثات الرسمية." i="▤" />
+    <section className="rules-hero"><div><span>SUPER AMAZON • POLICY CENTER</span><h3>تعليمات واضحة، وبيئة عمل أكثر أمانًا</h3><p>تابع القوانين والتحديثات الرسمية قبل تنفيذ أي إجراء داخل المنصة.</p></div><b>{items.length}<small>توجيه منشور</small></b></section>
+    {owner && <section className="rules-compose">
+      <div className="rules-compose-head"><div><small>لوحة النشر</small><h3>إضافة توجيه رسمي</h3></div><span>سيصل إشعار للفئة المحددة</span></div>
+      <div className="rules-form-grid"><label>العنوان<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength="250" placeholder="مثال: تحديث سياسة مراجعة الطلبات" /></label><label>تصنيف التوجيه<select value={category} onChange={(event) => setCategory(event.target.value)}>{Object.entries(categories).map(([key, value]) => <option key={key} value={key}>{value[1]} {value[0]}</option>)}</select></label><label>الفئة المستهدفة<select value={audience} onChange={(event) => setAudience(event.target.value)}><option value="ALL">جميع المستخدمين</option><option value="MEMBER">الأعضاء</option><option value="ADMIN">الإدمنية</option><option value="BROKER">الوسطاء</option></select></label></div>
+      <label>نص التوجيه<textarea rows="5" value={body} onChange={(event) => setBody(event.target.value)} maxLength="10000" placeholder="اكتب التعليمات بوضوح، مع الخطوات أو التنبيه المطلوب..." /></label>
+      <div className="rules-compose-actions"><label className="rules-important"><input type="checkbox" checked={important} onChange={(event) => setImportant(event.target.checked)} /> <span><b>توجيه مهم</b><small>يثبّت في أعلى القائمة ويصل بإشعار فوري.</small></span></label><button className="primary" disabled={sending} onClick={createAnnouncement}>{sending ? "جاري النشر..." : "نشر التوجيه"}</button></div>
+    </section>}
+    <section className="rules-toolbar"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث في القوانين والتوجيهات..." /><div>{[["ALL", "الكل"], ...Object.entries(categories).map(([key, value]) => [key, value[0]])].map(([key, label]) => <button key={key} className={filter === key ? "active" : ""} onClick={() => setFilter(key)}>{label}</button>)}</div></section>
+    <section className="rules-list">{visibleItems.length === 0 ? <div className="empty-state">لا توجد توجيهات مطابقة للبحث.</div> : visibleItems.map((item) => { const info = categories[item.category] || categories.GENERAL; return <article className={`rule-card ${item.important ? "important" : ""}`} key={item.id}><div className="rule-icon">{info[1]}</div><div className="rule-content"><div className="rule-meta"><span>{info[0]}</span>{item.important && <b>توجيه مهم</b>}</div><h3>{item.title}</h3><p>{item.body}</p><footer><span>نُشر في {new Date(item.created_at).toLocaleString("ar-IQ")}</span>{owner && <span>{item.published ? "منشور" : "مسودة"} • {item.audience === "ALL" ? "الجميع" : accountLabel(item.audience)}</span>}</footer></div></article>; })}</section>
+  </div>;
 }
 
 function Finance({ role }) {
