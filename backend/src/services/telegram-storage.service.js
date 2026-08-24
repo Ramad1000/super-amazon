@@ -93,6 +93,12 @@ async function downloadFromTelegram(fileId) {
   return Buffer.from(await response.arrayBuffer());
 }
 
+async function deleteTelegramMessage(chatId, messageId) {
+  if (!chatId || !messageId) return false;
+  await telegramApi(`deleteMessage?chat_id=${encodeURIComponent(String(chatId))}&message_id=${encodeURIComponent(String(messageId))}`, { method: "POST" });
+  return true;
+}
+
 async function inspectStorage(chatId = TELEGRAM_STORAGE_CHAT_ID) {
   if (!configured(chatId)) throw storageError("لم يتم إعداد رمز البوت أو قناة Telegram");
   const bot = await telegramApi("getMe");
@@ -107,4 +113,4 @@ async function inspectStorage(chatId = TELEGRAM_STORAGE_CHAT_ID) {
   };
 }
 
-module.exports = { configured, uploadToTelegram, streamFromTelegram, streamUserProfilePhoto, downloadFromTelegram, inspectStorage };
+module.exports = { configured, uploadToTelegram, streamFromTelegram, streamUserProfilePhoto, downloadFromTelegram, deleteTelegramMessage, inspectStorage };

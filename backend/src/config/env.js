@@ -16,6 +16,7 @@ module.exports = {
   BACKUP_ENCRYPTION_KEY: process.env.BACKUP_ENCRYPTION_KEY || "",
   BACKUP_SCHEDULE_HOUR: Math.min(23, Math.max(0, Number(process.env.BACKUP_SCHEDULE_HOUR || 3))),
   BACKUP_TIMEZONE: process.env.BACKUP_TIMEZONE || "Asia/Baghdad",
+  BACKUP_RETENTION_DAYS: Math.min(365, Math.max(7, Number(process.env.BACKUP_RETENTION_DAYS || 30))),
   TELEGRAM_CLIENT_ID: process.env.TELEGRAM_CLIENT_ID || "",
   TELEGRAM_CLIENT_SECRET: process.env.TELEGRAM_CLIENT_SECRET || "",
   TELEGRAM_AUTH_MAX_AGE_SECONDS: Number(process.env.TELEGRAM_AUTH_MAX_AGE_SECONDS || 86400),

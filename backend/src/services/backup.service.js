@@ -1,8 +1,8 @@
 const crypto = require("crypto");
 const zlib = require("zlib");
 const { query, pool } = require("../db/database");
-const { BACKUP_ENCRYPTION_KEY, BACKUP_SCHEDULE_HOUR, BACKUP_TIMEZONE } = require("../config/env");
-const { uploadToTelegram, downloadFromTelegram, inspectStorage } = require("./telegram-storage.service");
+const { BACKUP_ENCRYPTION_KEY, BACKUP_SCHEDULE_HOUR, BACKUP_TIMEZONE, BACKUP_RETENTION_DAYS } = require("../config/env");
+const { uploadToTelegram, downloadFromTelegram, deleteTelegramMessage, inspectStorage } = require("./telegram-storage.service");
 
 const MAGIC = Buffer.from("SUPER_AMAZON_BACKUP_V1\n");
 let backupRunning = false;
@@ -40,6 +40,20 @@ async function loadBackupData() {
   ]);
   return { users: users.rows, requests: requests.rows, requestFiles: requestFiles.rows, complaints: complaints.rows, complaintFiles: complaintFiles.rows, complaintMessages: complaintMessages.rows, brokerFinance: brokerFinance.rows, brokerLifts: brokerLifts.rows, brokerPayments: brokerPayments.rows, announcements: announcements.rows, notifications: notifications.rows, assistantPermissions: assistantPermissions.rows, auditLogs: auditLogs.rows, settings: settings.rows };
 }
+async function purgeExpiredBackups() {
+  const expired = await query(
+    "SELECT id, telegram_chat_id, telegram_message_id FROM backup_logs WHERE status = 'SUCCESS' AND finished_at < NOW() - ($1::int * INTERVAL '1 day') AND telegram_chat_id IS NOT NULL",
+    [BACKUP_RETENTION_DAYS]
+  );
+  for (const backup of expired.rows) {
+    try {
+      await deleteTelegramMessage(backup.telegram_chat_id, backup.telegram_message_id);
+      await query("DELETE FROM backup_logs WHERE id = $1", [backup.id]);
+    } catch (error) {
+      console.warn("Backup retention cleanup:", error.message);
+    }
+  }
+}
 async function createBackup({ actorUserId = null, trigger = "MANUAL" } = {}) {
   if (backupRunning) throw backupError("توجد نسخة احتياطية قيد الإنشاء بالفعل", 409);
   backupRunning = true; let backupId = null;
@@ -59,8 +73,9 @@ async function createBackup({ actorUserId = null, trigger = "MANUAL" } = {}) {
     let telegramFile;
     try { telegramFile = await uploadToTelegram({ path: temporaryPath, originalname: filename, mimetype: "application/octet-stream", size: encrypted.length }, "Super Amazon • نسخة احتياطية مشفّرة AES-256-GCM", channelId); }
     finally { require("fs").unlink(temporaryPath, () => {}); }
-    const saved = await query("UPDATE backup_logs SET finished_at = NOW(), status = 'SUCCESS', file_size = $1, sha256_hash = $2, telegram_message_id = $3, telegram_file_id = $4, encryption_algorithm = 'AES-256-GCM' WHERE id = $5 RETURNING *", [encrypted.length, sha256, String(telegramFile.messageId), telegramFile.fileId, backupId]);
+    const saved = await query("UPDATE backup_logs SET finished_at = NOW(), status = 'SUCCESS', file_size = $1, sha256_hash = $2, telegram_message_id = $3, telegram_file_id = $4, telegram_chat_id = $5, encryption_algorithm = 'AES-256-GCM' WHERE id = $6 RETURNING *", [encrypted.length, sha256, String(telegramFile.messageId), telegramFile.fileId, telegramFile.chatId, backupId]);
     await query("INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details) VALUES ($1,'CREATE_BACKUP','BACKUP',$2,$3::jsonb)", [actorUserId, backupId, JSON.stringify({ trigger, sha256, encrypted: true })]);
+    await purgeExpiredBackups();
     return saved.rows[0];
   } catch (error) {
     if (backupId) await query("UPDATE backup_logs SET finished_at = NOW(), status = 'FAILED', error_message = $1 WHERE id = $2", [String(error.message).slice(0, 1000), backupId]).catch(() => {});

@@ -4,6 +4,7 @@ const multer = require("multer");
 const path = require("path");
 const { auth } = require("../middleware/auth");
 const { createRequest, correctRequest, getMyRequest } = require("../services/request.service");
+const { validateUploadedFile } = require("../services/file-validation.service");
 
 const router = express.Router();
 const directory = path.resolve(__dirname, "../../uploads");
@@ -46,6 +47,7 @@ const one = (files, name) => files?.[name]?.[0] || null;
 
 router.post("/", auth, fields, async (req, res, next) => {
   try {
+    for (const [name, values] of Object.entries(req.files || {})) validateUploadedFile(values[0], name === "identityVideo" ? "video" : "image");
     const body = req.body;
     const request = await createRequest({
       userId: req.user.sub,
@@ -56,6 +58,7 @@ router.post("/", auth, fields, async (req, res, next) => {
       latitude: Number(body.latitude),
       longitude: Number(body.longitude),
       locationAccuracy: body.locationAccuracy,
+      privacyAccepted: body.privacyAccepted === "true",
       files: {
         ID_FRONT: one(req.files, "idFront"),
         ID_BACK: one(req.files, "idBack"),
@@ -72,6 +75,7 @@ router.post("/", auth, fields, async (req, res, next) => {
 
 router.patch("/:id/correct", auth, fields, async (req, res, next) => {
   try {
+    for (const [name, values] of Object.entries(req.files || {})) validateUploadedFile(values[0], name === "identityVideo" ? "video" : "image");
     const body = req.body;
     const request = await correctRequest({
       userId: req.user.sub,

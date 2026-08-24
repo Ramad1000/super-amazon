@@ -26,6 +26,7 @@ async function createRequest({
   latitude,
   longitude,
   locationAccuracy,
+  privacyAccepted,
   files
 }) {
   if (!fullName?.trim()) {
@@ -38,6 +39,9 @@ async function createRequest({
 
   if (!nationalId?.trim()) {
     throw validationError("رقم الأب مطلوب");
+  }
+  if (!privacyAccepted) {
+    throw validationError("يجب الموافقة على سياسة الخصوصية قبل إرسال الطلب");
   }
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
@@ -104,6 +108,7 @@ async function createRequest({
         latitude,
         longitude,
         location_accuracy,
+        privacy_accepted_at,
         status
       )
       VALUES (
@@ -115,6 +120,7 @@ async function createRequest({
         $6,
         $7,
         $8,
+        NOW(),
         'PENDING'::request_status
       )
       RETURNING *

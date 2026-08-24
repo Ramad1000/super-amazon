@@ -7,6 +7,7 @@ const { query } = require("../db/database");
 const { auth } = require("../middleware/auth");
 const { notifyUser, notifyRole, notifyAssistantsWithPermission } = require("../services/notification.service");
 const { uploadToTelegram } = require("../services/telegram-storage.service");
+const { validateUploadedFile } = require("../services/file-validation.service");
 
 const router = express.Router();
 router.use(auth);
@@ -109,6 +110,7 @@ router.post("/:id/messages", async (req, res, next) => {
 router.post("/", upload.array("attachments", 4), async (req, res, next) => {
   let complaintId = null;
   try {
+    for (const file of req.files || []) validateUploadedFile(file, "media");
     const targetUserId = String(req.body?.targetUserId || "");
     const targetType = String(req.body?.targetType || "").toUpperCase();
     const body = String(req.body?.body || "").trim();

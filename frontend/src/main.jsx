@@ -55,6 +55,18 @@ async function api(path, options = {}) {
   return data;
 }
 
+async function downloadAuthenticated(path, filename) {
+  const response = await fetch(API + path, { headers: { Authorization: `Bearer ${localStorage.getItem("sa_token") || ""}` } });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || "تعذر إنشاء ملف التصدير");
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url; link.download = filename; link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function readTelegramRedirectToken() {
   const params = new URLSearchParams(window.location.hash.slice(1));
   const token = params.get("telegram_token");
@@ -391,7 +403,7 @@ function Side({
 
   items.push(["notifications", "الإشعارات", "◉"]);
   if (role !== "OWNER_ASSISTANT" || (user?.permissions || []).includes("ANNOUNCEMENTS")) items.push(["rules", "القوانين والتوجيهات", "▤"]);
-  items.push(["profile", "ملفي الشخصي", "◎"], ["settings", "الإعدادات", "⚙"]);
+  items.push(["profile", "ملفي الشخصي", "◎"], ["settings", "الإعدادات", "⚙"], ["help", "المساعدة والخصوصية", "?"], ["privacy", "سياسة الخصوصية", "▤"]);
 
   return (
     <aside className={open ? "sidebar expanded" : "sidebar collapsed"} aria-label="التنقل الرئيسي">
@@ -531,6 +543,9 @@ function Router({
     return <Settings dark={dark} setDark={setDark} user={user} />;
   }
 
+  if (page === "help") return <Help />;
+  if (page === "privacy") return <Privacy />;
+
   return (
     <Basic
       title={
@@ -549,6 +564,21 @@ function Router({
       }
     />
   );
+}
+
+function Help() {
+  return <div className="page"><Title t="المساعدة والخصوصية" d="إرشادات سريعة لاستخدام المنصة وحماية بياناتك." i="?" />
+    <section className="panel"><h3>بدء الاستخدام</h3><ol><li>سجّل الدخول بحساب Telegram الحقيقي.</li><li>قدّم طلب ادمن أو وسيط مع المستمسكات والموقع الصحيح.</li><li>تابع حالة الطلب والإشعارات من لوحة التحكم.</li><li>استخدم قسم الشكاوى لفتح متابعة موثقة عند الحاجة.</li></ol></section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>الملفات والموقع</h3><p>تُستخدم المستمسكات والصورة وفيديو التحقق والموقع الجغرافي لغرض المراجعة والتحقق فقط. لا تشارك رمز Telegram أو رموز Render أو كلمات المرور مع أي شخص.</p></section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>تحتاج مساعدة؟</h3><p>للدعم أو الاعتراض على قرار مراجعة، استخدم الشكوى داخل المنصة أو تواصل مع المالك عبر Telegram.</p><a className="secondary" href="https://t.me/f_f_f" target="_blank" rel="noreferrer">التواصل مع المالك @f_f_f</a></section>
+  </div>;
+}
+
+function Privacy() {
+  return <div className="page"><Title t="سياسة الخصوصية" d="ملخص واضح لكيفية جمع البيانات واستخدامها والاحتفاظ بها." i="▤" />
+    <section className="panel"><h3>البيانات التي نجمعها</h3><p>اسم Telegram ومعرفه ويوزره، بيانات الطلب، رقم الأب، المستمسكات، صورة التحقق، فيديو التحقق، موقع التحقق، وسجل المراسلات والشكاوى.</p><h3>سبب الاستخدام</h3><p>نستخدم البيانات للتحقق من الهوية، مراجعة طلبات الصلاحيات، معالجة الشكاوى، إدارة المستحقات، وحماية المنصة من التلاعب.</p></section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>الحفظ والوصول</h3><p>المرفقات تحفظ في قناة Telegram مخصصة لا يصل إليها إلا من يملك صلاحية الإدارة. يحتفظ النظام بالنسخ الاحتياطية المشفرة لمدة 30 يومًا افتراضيًا. الوصول إلى البيانات مقيد بالصلاحيات وسجل العمليات.</p><h3>طلب التصحيح أو الحذف</h3><p>يمكنك طلب تصحيح بياناتك أو حذفها بحسب سياسة المنصة عبر التواصل مع المالك. قد يحتفظ النظام بالبيانات اللازمة للالتزامات الإدارية أو فض النزاعات.</p></section>
+  </div>;
 }
 
 function Title({ t, d, i }) {
@@ -846,6 +876,8 @@ function Application({ user }) {
     setIdentityVideo,
   ] = useState(null);
 
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+
   useEffect(() => {
     loadRequest();
   }, []);
@@ -924,6 +956,11 @@ function Application({ user }) {
       return;
     }
 
+    if (!editing && !privacyAccepted) {
+      alert("يجب الموافقة على سياسة الخصوصية قبل إرسال الطلب");
+      return;
+    }
+
     if (
       !idFront ||
       !idBack ||
@@ -985,6 +1022,7 @@ function Application({ user }) {
       "locationAccuracy",
       String(locationAccuracy || "")
     );
+    form.append("privacyAccepted", String(privacyAccepted || editing));
 
     form.append(
       "idFront",
@@ -1404,6 +1442,8 @@ function Application({ user }) {
             MB
           </small>
         )}
+
+        {!editing && <label className="privacy-consent"><input type="checkbox" checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} /> أوافق على استخدام بيانات الطلب والموقع والمرفقات لأغراض التحقق والمراجعة وفق <a href="#privacy" onClick={(event) => { event.preventDefault(); window.alert("يمكنك قراءة سياسة الخصوصية من القائمة الجانبية قبل الإرسال."); }}>سياسة الخصوصية</a>.</label>}
 
         <div
           style={{
@@ -2257,6 +2297,7 @@ function OwnerFinance() {
   const [paymentNote, setPaymentNote] = useState("");
   const [payments, setPayments] = useState([]);
   const [message, setMessage] = useState("");
+  const [reminding, setReminding] = useState(false);
   async function load() {
     try { const [brokerResult, archivedResult, paymentResult] = await Promise.all([api("/owner/finance/brokers"), api("/owner/finance/archived-brokers"), api("/owner/finance/payments")]); setBrokers(brokerResult.brokers || []); setArchivedBrokers(archivedResult.brokers || []); setPayments(paymentResult.payments || []); } catch (error) { setMessage(error.message); }
   }
@@ -2289,11 +2330,18 @@ function OwnerFinance() {
     if (!window.confirm("هل تريد إلغاء هذه الدفعة؟ سيُعاد المبلغ إلى الرصيد المتبقي.")) return;
     try { await api(`/owner/finance/payments/${id}`, { method: "DELETE" }); setMessage("تم إلغاء الدفعة وتحديث الرصيد."); await load(); if (paymentBrokerId) loadLifts(paymentBrokerId); } catch (error) { setMessage(error.message); }
   }
+  async function sendReminders() {
+    if (!window.confirm("سيصل تذكير Telegram إلى كل وسيط لديه رصيد متبقٍ. هل تريد المتابعة؟")) return;
+    setReminding(true);
+    try { const result = await api("/owner/finance/reminders", { method: "POST" }); setMessage(result.message); }
+    catch (error) { setMessage(error.message); }
+    finally { setReminding(false); }
+  }
   return <div className="page">
     <Title t="مالية الوسطاء" d="أضف الرفعات وتابع الأرصدة المتبقية." i="₿" />
     <section className="panel"><h3>إضافة رفعة مالية</h3><select value={brokerId} onChange={(event) => setBrokerId(event.target.value)}><option value="">اختر الوسيط</option>{brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.telegram_name || broker.telegram_username || "وسيط"}</option>)}</select><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="numeric" placeholder="المبلغ بالدينار العراقي" /><div className="seg"><button className={method === "CASH" ? "on" : ""} onClick={() => setMethod("CASH")}>نقدي</button><button className={method === "INSTALLMENTS" ? "on" : ""} onClick={() => setMethod("INSTALLMENTS")}>أقساط</button></div><button className="primary" onClick={addLift}>إضافة الرفعة</button></section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>تسجيل دفعة لوسيط</h3><select value={paymentBrokerId} onChange={(event) => loadLifts(event.target.value)}><option value="">اختر الوسيط</option>{brokers.map((broker) => <option key={broker.id} value={broker.id}>{broker.telegram_name || broker.telegram_username || "وسيط"}</option>)}</select><select value={liftId} disabled={!paymentBrokerId} onChange={(event) => setLiftId(event.target.value)}><option value="">اختر الرفعة</option>{lifts.filter((lift) => Number(lift.total_amount) > Number(lift.paid_amount)).map((lift) => <option key={lift.id} value={lift.id}>متبقي {Number(lift.total_amount - lift.paid_amount).toLocaleString("ar-IQ")} د.ع</option>)}</select><input value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} inputMode="numeric" placeholder="قيمة الدفعة بالدينار العراقي" /><textarea rows="3" value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="ملاحظة اختيارية" /><button className="secondary" onClick={addPayment}>تسجيل الدفعة</button>{message && <p className="settings-saved">{message}</p>}</section>
-    <section className="panel" style={{ marginTop: "18px" }}><h3>أرصدة الوسطاء</h3><Table rows={brokers.length ? brokers.map((broker) => [broker.telegram_name || "—", Number(broker.total).toLocaleString("ar-IQ"), Number(broker.paid).toLocaleString("ar-IQ"), (Number(broker.total) - Number(broker.paid)).toLocaleString("ar-IQ")]) : [["لا يوجد وسطاء", "—", "—", "—"]]} /></section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>أرصدة الوسطاء</h3><p>أرسل تذكيرًا مباشرًا عبر Telegram للوسطاء الذين لديهم رصيد غير مسدد.</p><button className="secondary" disabled={reminding} onClick={sendReminders}>{reminding ? "جاري إرسال التذكيرات..." : "إرسال تذكير بالأرصدة المتبقية"}</button><Table rows={brokers.length ? brokers.map((broker) => [broker.telegram_name || "—", Number(broker.total).toLocaleString("ar-IQ"), Number(broker.paid).toLocaleString("ar-IQ"), (Number(broker.total) - Number(broker.paid)).toLocaleString("ar-IQ")]) : [["لا يوجد وسطاء", "—", "—", "—"]]} /></section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>أرشيف الوسطاء السابقين</h3><p>هذه الحسابات نُزّلت إلى عضو؛ لا تظهر في قوائم الوسطاء النشطة، وسجلها المالي محفوظ للرجوع إليه.</p><Table rows={archivedBrokers.length ? archivedBrokers.map((broker) => [broker.telegram_name || broker.telegram_username || "—", accountLabel(broker.account_type), Number(broker.total).toLocaleString("ar-IQ"), (Number(broker.total) - Number(broker.paid)).toLocaleString("ar-IQ")]) : [["لا يوجد أرشيف مالي لوسطاء سابقين", "—", "—", "—"]]} /></section>
     <section className="panel" style={{ marginTop: "18px" }}><h3>آخر الدفعات المسجلة</h3>{payments.length ? <div className="table"><div className="tr head"><span>الوسيط</span><span>المبلغ</span><span>التاريخ</span><span>إجراء</span></div>{payments.map((payment) => <div className="tr" key={payment.id}><span>{payment.broker_name || payment.broker_username || "—"}<br /><small>{payment.note || "بدون ملاحظة"}</small></span><span>{Number(payment.amount).toLocaleString("ar-IQ")} د.ع</span><span>{new Date(payment.payment_date).toLocaleString("ar-IQ")}</span><span><button className="secondary" onClick={() => reversePayment(payment.id)}>إلغاء الدفعة</button></span></div>)}</div> : <p>لا توجد دفعات مسجلة بعد.</p>}</section>
   </div>;
@@ -2307,9 +2355,9 @@ function OwnerReports() {
   useEffect(() => { load(); }, [days]);
   const count = (rows, name) => Number((rows || []).find((item) => item.status === name || item.account_type === name)?.total || 0);
   const money = (value) => Number(value || 0).toLocaleString("ar-IQ");
-  function exportReport() { if (!report) return; const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `super-amazon-report-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url); }
+  async function exportCsv(kind) { try { await downloadAuthenticated(`/owner/reports/export?days=${days}&kind=${kind}`, `super-amazon-${kind}-${new Date().toISOString().slice(0, 10)}.csv`); } catch (error) { setError(error.message); } }
   return <div className="page"><Title t="تقارير المنصة" d="ملخص حيّ للحسابات والطلبات والشكاوى والمالية." i="▥" />
-    <section className="panel"><label>فترة التقرير</label><select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value="7">آخر 7 أيام</option><option value="30">آخر 30 يومًا</option><option value="90">آخر 90 يومًا</option><option value="365">آخر سنة</option></select><button className="secondary" onClick={load}>تحديث التقرير</button>{report && <button className="secondary" onClick={exportReport}>تصدير JSON</button>}</section>
+    <section className="panel"><label>فترة التقرير</label><select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value="7">آخر 7 أيام</option><option value="30">آخر 30 يومًا</option><option value="90">آخر 90 يومًا</option><option value="365">آخر سنة</option></select><button className="secondary" onClick={load}>تحديث التقرير</button>{report && <><button className="secondary" onClick={() => exportCsv("summary")}>تصدير الطلبات CSV</button><button className="secondary" onClick={() => exportCsv("finance")}>تصدير مالية الوسطاء CSV</button></>}</section>
     {error && <p className="error">{error}</p>}
     {!report ? <section className="panel"><p>جاري إعداد التقرير...</p></section> : <>
       <div className="stats"><div className="stat"><small>الأعضاء</small><strong>{count(report.users, "MEMBER")}</strong><span>حساب</span></div><div className="stat"><small>ادمن</small><strong>{count(report.users, "ADMIN")}</strong><span>حساب</span></div><div className="stat"><small>الوسطاء</small><strong>{count(report.users, "BROKER")}</strong><span>حساب</span></div></div>
@@ -2413,7 +2461,7 @@ function Backup({ role }) {
     </section>}
     <section className="panel">
       <h3>نسخة احتياطية جديدة</h3>
-      <p>يشمل النسخ المستخدمين والطلبات وسجلات المرفقات والمالية والشكاوى والإشعارات وسجل العمليات. تُنشأ نسخة تلقائية يوميًا بعد الساعة 03:00 بتوقيت بغداد، وتبقى الملفات الأصلية محفوظة في قناة المرفقات.</p>
+      <p>يشمل النسخ المستخدمين والطلبات وسجلات المرفقات والمالية والشكاوى والإشعارات وسجل العمليات. تُنشأ نسخة تلقائية يوميًا بعد الساعة 03:00 بتوقيت بغداد، وتبقى الملفات الأصلية محفوظة في قناة المرفقات. تُحذف النسخ المشفّرة الأقدم من 30 يومًا تلقائيًا.</p>
       {role === "OWNER" ? <button className="primary" disabled={creating} onClick={createBackup}>{creating ? "جاري إنشاء النسخة وإرسالها..." : "إنشاء نسخة احتياطية الآن"}</button> : <p>يمكنك مراجعة سجل النسخ الاحتياطية. إنشاء النسخ متاح لحساب Owner فقط.</p>}
       {message && <p className="settings-saved">{message}</p>}
     </section>

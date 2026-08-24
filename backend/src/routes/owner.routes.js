@@ -16,6 +16,18 @@ function mapsUrl(latitude, longitude) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
 }
 
+function csvCell(value) {
+  const text = String(value ?? "").replace(/"/g, '""');
+  return `"${text}"`;
+}
+
+function sendCsv(res, filename, headers, rows) {
+  const content = `\ufeff${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  return res.send(content);
+}
+
 // Owner assistants never inherit the full Owner panel. Each protected section
 // checks the exact permission assigned from the Owner dashboard.
 function requireOwnerPermission(permission) {
@@ -167,6 +179,29 @@ router.get("/reports", requireOwnerPermission("REPORTS"), async (req, res, next)
   } catch (error) { return next(error); }
 });
 
+router.get("/reports/export", requireOwnerPermission("REPORTS"), async (req, res, next) => {
+  try {
+    const days = Math.min(365, Math.max(1, Number.parseInt(req.query.days, 10) || 30));
+    const kind = String(req.query.kind || "summary");
+    if (kind === "finance") {
+      const result = await query(
+        `SELECT u.telegram_name, u.telegram_username, COALESCE(SUM(l.total_amount),0) AS total,
+         COALESCE(SUM(l.paid_amount),0) AS paid, COALESCE(SUM(l.total_amount-l.paid_amount),0) AS remaining
+         FROM users u LEFT JOIN broker_lifts l ON l.broker_id = u.id
+         WHERE u.account_type = 'BROKER'::account_type GROUP BY u.id, u.telegram_name, u.telegram_username
+         ORDER BY remaining DESC, u.telegram_name NULLS LAST`
+      );
+      return sendCsv(res, `super-amazon-finance-${new Date().toISOString().slice(0, 10)}.csv`, ["الوسيط", "يوزر Telegram", "إجمالي الرفعات", "المدفوع", "المتبقي"], result.rows.map((row) => [row.telegram_name, row.telegram_username ? `@${row.telegram_username}` : "", row.total, row.paid, row.remaining]));
+    }
+    const result = await query(
+      `SELECT r.request_number, r.full_name, r.applicant_type, r.status, r.father_phone, r.submitted_at,
+       u.telegram_username FROM requests r JOIN users u ON u.id = r.user_id
+       WHERE r.created_at >= NOW() - ($1::int * INTERVAL '1 day') ORDER BY r.created_at DESC`, [days]
+    );
+    return sendCsv(res, `super-amazon-requests-${days}-days.csv`, ["رقم الطلب", "الاسم", "نوع الطلب", "الحالة", "رقم الأب", "Telegram", "تاريخ الإرسال"], result.rows.map((row) => [row.request_number, row.full_name, row.applicant_type, row.status, row.father_phone, row.telegram_username ? `@${row.telegram_username}` : "", row.submitted_at]));
+  } catch (error) { return next(error); }
+});
+
 router.get("/assistants", requireRoles("OWNER"), async (req, res, next) => {
   try {
     const result = await query(
@@ -249,7 +284,7 @@ router.post("/system/test-storage", requireRoles("OWNER"), async (req, res, next
 router.get("/backups", requireOwnerPermission("BACKUP"), async (req, res, next) => {
   try {
     const result = await query(
-      `SELECT id, started_at, finished_at, status, file_size, sha256_hash, telegram_message_id, telegram_file_id, encryption_algorithm, trigger, error_message
+      `SELECT id, started_at, finished_at, status, file_size, sha256_hash, telegram_message_id, telegram_file_id, telegram_chat_id, encryption_algorithm, trigger, error_message
        FROM backup_logs ORDER BY started_at DESC LIMIT 50`
     );
     return res.json({ success: true, backups: result.rows });
@@ -446,6 +481,22 @@ router.delete("/finance/payments/:id", requireOwnerPermission("FINANCE"), async 
     await notifyUser(item.broker_id, "تم إلغاء دفعة", `تم إلغاء دفعة بقيمة ${item.amount} د.ع من السجل المالي.`);
     return res.json({ success: true });
   } catch (error) { await client.query("ROLLBACK"); return next(error); } finally { client.release(); }
+});
+
+router.post("/finance/reminders", requireOwnerPermission("FINANCE"), async (req, res, next) => {
+  try {
+    const brokers = await query(
+      `SELECT u.id, u.telegram_name, COALESCE(SUM(l.total_amount-l.paid_amount),0) AS remaining
+       FROM users u JOIN broker_lifts l ON l.broker_id = u.id
+       WHERE u.account_type = 'BROKER'::account_type AND u.status = 'ACTIVE'::user_status
+       GROUP BY u.id, u.telegram_name HAVING COALESCE(SUM(l.total_amount-l.paid_amount),0) > 0`
+    );
+    for (const broker of brokers.rows) {
+      await notifyUser(broker.id, "تذكير بالرصيد المتبقي", `لديك رصيد متبقٍ بقيمة ${Number(broker.remaining).toLocaleString("ar-IQ")} د.ع. راجع قسم المالية أو تواصل مع الإدارة.`);
+    }
+    await query(`INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details) VALUES ($1,'SEND_FINANCE_REMINDERS','FINANCE','ALL',$2::jsonb)`, [req.user.sub, JSON.stringify({ recipients: brokers.rows.length })]);
+    return res.json({ success: true, recipients: brokers.rows.length, message: brokers.rows.length ? `تم إرسال التذكير إلى ${brokers.rows.length} وسيط.` : "لا توجد أرصدة متبقية لإرسال تذكير بشأنها." });
+  } catch (error) { return next(error); }
 });
 
 router.patch("/users/:id/status", requireOwnerPermission("USERS"), async (req, res, next) => {
