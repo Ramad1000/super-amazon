@@ -66,6 +66,24 @@ async function streamFromTelegram(fileId, mimeType, res) {
   Readable.fromWeb(response.body).pipe(res);
 }
 
+async function streamUserProfilePhoto(telegramUserId, res) {
+  if (!TELEGRAM_BOT_TOKEN) throw storageError("لم يتم إعداد رمز بوت Telegram");
+  const photos = await telegramApi(`getUserProfilePhotos?user_id=${encodeURIComponent(String(telegramUserId))}&limit=1`);
+  const photo = photos?.photos?.[0]?.at(-1);
+  if (!photo?.file_id) {
+    const error = new Error("لا تتوفر صورة عامة لهذا الحساب في Telegram");
+    error.statusCode = 404;
+    throw error;
+  }
+  const details = await telegramApi(`getFile?file_id=${encodeURIComponent(photo.file_id)}`);
+  if (!details?.file_path) throw storageError("تعذر العثور على صورة الحساب في Telegram");
+  const response = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${details.file_path}`);
+  if (!response.ok || !response.body) throw storageError("تعذر تنزيل صورة الحساب من Telegram");
+  res.type("image/jpeg");
+  res.setHeader("Cache-Control", "private, max-age=3600");
+  Readable.fromWeb(response.body).pipe(res);
+}
+
 async function inspectStorage() {
   if (!configured()) throw storageError("لم يتم إعداد TELEGRAM_BOT_TOKEN أو TELEGRAM_STORAGE_CHAT_ID");
   const bot = await telegramApi("getMe");
@@ -80,4 +98,4 @@ async function inspectStorage() {
   };
 }
 
-module.exports = { configured, uploadToTelegram, streamFromTelegram, inspectStorage };
+module.exports = { configured, uploadToTelegram, streamFromTelegram, streamUserProfilePhoto, inspectStorage };

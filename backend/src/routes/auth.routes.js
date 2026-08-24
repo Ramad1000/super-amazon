@@ -2,6 +2,7 @@ const express = require("express");
 const { pool } = require("../db/database");
 const { auth } = require("../middleware/auth");
 const { OWNER_SETUP_KEY } = require("../config/env");
+const { streamUserProfilePhoto } = require("../services/telegram-storage.service");
 const {
   beginTelegramAuthorization,
   completeTelegramAuthorization,
@@ -102,6 +103,17 @@ router.get("/me", auth, async (req, res, next) => {
     }
     return res.json({ success: true, user });
   } catch (error) {
+    return next(error);
+  }
+});
+
+// Keep the bot token on the server: the browser receives only a short-lived
+// image stream after the current session has been authenticated.
+router.get("/profile-photo", auth, async (req, res, next) => {
+  try {
+    return await streamUserProfilePhoto(req.user.telegramId, res);
+  } catch (error) {
+    if (error.statusCode === 404) return res.status(404).json({ success: false, message: error.message });
     return next(error);
   }
 });

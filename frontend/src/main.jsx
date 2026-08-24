@@ -2420,7 +2420,26 @@ function Backup({ role }) {
 
 function Profile({ user }) {
   const [copied, setCopied] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState("");
+  const [photoUnavailable, setPhotoUnavailable] = useState(false);
+  const displayName = user.telegram_name || user.telegram_username || "المستخدم";
+  const initials = Array.from(displayName.trim()).filter((character) => /[\p{L}\p{N}]/u.test(character)).slice(0, 2).join("").toUpperCase() || "SA";
   function copyId() { navigator.clipboard?.writeText(String(user.telegram_id || "")); setCopied(true); setTimeout(() => setCopied(false), 1600); }
+  useEffect(() => {
+    let alive = true;
+    let objectUrl = "";
+    async function loadPhoto() {
+      try {
+        const token = localStorage.getItem("sa_token");
+        const response = await fetch(`${API}/auth/profile-photo`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!response.ok) throw new Error("no-photo");
+        objectUrl = URL.createObjectURL(await response.blob());
+        if (alive) setPhotoUrl(objectUrl);
+      } catch { if (alive) setPhotoUnavailable(true); }
+    }
+    loadPhoto();
+    return () => { alive = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [user.telegram_id]);
   return (
     <div className="page">
       <Title
@@ -2429,25 +2448,12 @@ function Profile({ user }) {
         i="◎"
       />
 
-      <section className="profile">
-        <b>SA</b>
-
-        <div>
-          <h2>
-            <bdi className="unicode-text">{user.telegram_name || "المستخدم"}</bdi>
-          </h2>
-
-          <p>
-            @
-            <bdi className="unicode-text">{user.telegram_username || "غير محدد"}</bdi>
-          </p>
-
-          <small>
-            Telegram ID:{" "}
-            {user.telegram_id}
-          </small>
-        </div>
+      <section className="profile profile-pro">
+        <div className="profile-avatar">{photoUrl ? <img src={photoUrl} alt={`صورة ${displayName}`} /> : <b>{initials}</b>}<i>✓</i></div>
+        <div className="profile-main"><small>الحساب المرتبط بـ Telegram</small><h2><bdi className="unicode-text">{displayName}</bdi></h2><p>@<bdi className="unicode-text">{user.telegram_username || "غير محدد"}</bdi></p><div className="profile-badges"><span>{accountLabel(user.role === "OWNER" || user.role === "OWNER_ASSISTANT" ? "ADMIN" : user.account_type)}</span><span className={user.status === "ACTIVE" ? "online" : ""}>{user.status === "ACTIVE" ? "حساب نشط" : user.status}</span></div></div>
+        <div className="profile-side"><span>معرّف Telegram</span><b>{user.telegram_id}</b><button className="secondary" onClick={copyId}>{copied ? "تم النسخ ✓" : "نسخ المعرّف"}</button></div>
       </section>
+      {photoUnavailable && <p className="profile-photo-note">لا تتوفر صورة عامة من Telegram لهذا الحساب حاليًا؛ تم استخدام صورة الأحرف البديلة.</p>}
 
       <section className="panel" style={{ marginTop: "18px" }}>
         <h3>تفاصيل الحساب</h3>
@@ -2456,7 +2462,6 @@ function Profile({ user }) {
           ["حالة الحساب", user.status === "ACTIVE" ? "نشط" : user.status, "التحقق", user.is_verified ? "مؤكد" : "قيد التحقق"],
           ["تاريخ الانضمام", user.created_at ? new Date(user.created_at).toLocaleDateString("ar-IQ") : "—", "هوية Telegram", String(user.telegram_id || "—")],
         ]} />
-        <button className="secondary" onClick={copyId}>{copied ? "تم نسخ المعرّف" : "نسخ معرّف Telegram"}</button>
       </section>
     </div>
   );
