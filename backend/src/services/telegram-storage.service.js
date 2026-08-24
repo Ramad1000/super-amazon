@@ -84,10 +84,19 @@ async function streamUserProfilePhoto(telegramUserId, res) {
   Readable.fromWeb(response.body).pipe(res);
 }
 
-async function inspectStorage() {
-  if (!configured()) throw storageError("لم يتم إعداد TELEGRAM_BOT_TOKEN أو TELEGRAM_STORAGE_CHAT_ID");
+async function downloadFromTelegram(fileId) {
+  if (!TELEGRAM_BOT_TOKEN) throw storageError("لم يتم إعداد رمز بوت Telegram");
+  const details = await telegramApi(`getFile?file_id=${encodeURIComponent(fileId)}`);
+  if (!details?.file_path) throw storageError("تعذر العثور على ملف النسخة في Telegram");
+  const response = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${details.file_path}`);
+  if (!response.ok) throw storageError("تعذر تنزيل ملف النسخة من Telegram");
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function inspectStorage(chatId = TELEGRAM_STORAGE_CHAT_ID) {
+  if (!configured(chatId)) throw storageError("لم يتم إعداد رمز البوت أو قناة Telegram");
   const bot = await telegramApi("getMe");
-  const encodedChatId = encodeURIComponent(String(TELEGRAM_STORAGE_CHAT_ID));
+  const encodedChatId = encodeURIComponent(String(chatId));
   const chat = await telegramApi(`getChat?chat_id=${encodedChatId}`);
   const membership = await telegramApi(`getChatMember?chat_id=${encodedChatId}&user_id=${bot.id}`);
   return {
@@ -98,4 +107,4 @@ async function inspectStorage() {
   };
 }
 
-module.exports = { configured, uploadToTelegram, streamFromTelegram, streamUserProfilePhoto, inspectStorage };
+module.exports = { configured, uploadToTelegram, streamFromTelegram, streamUserProfilePhoto, downloadFromTelegram, inspectStorage };

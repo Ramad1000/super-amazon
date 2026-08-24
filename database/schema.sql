@@ -27,4 +27,7 @@ CREATE TABLE IF NOT EXISTS assistant_permissions(id uuid PRIMARY KEY DEFAULT gen
 CREATE TABLE IF NOT EXISTS audit_logs(id bigserial PRIMARY KEY,actor_user_id uuid REFERENCES users(id),action varchar(100) NOT NULL,target_type varchar(100),target_id text,details jsonb,created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,user_agent text,ip_address inet,created_at timestamptz NOT NULL DEFAULT now(),last_seen_at timestamptz NOT NULL DEFAULT now(),revoked_at timestamptz);
 CREATE TABLE IF NOT EXISTS system_settings(key varchar(100) PRIMARY KEY,value jsonb NOT NULL,updated_by uuid REFERENCES users(id),updated_at timestamptz NOT NULL DEFAULT now());
-CREATE TABLE IF NOT EXISTS backup_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),started_at timestamptz NOT NULL DEFAULT now(),finished_at timestamptz,status varchar(30) NOT NULL,file_size bigint,sha256_hash char(64),telegram_message_id text,error_message text);
+CREATE TABLE IF NOT EXISTS backup_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),started_at timestamptz NOT NULL DEFAULT now(),finished_at timestamptz,status varchar(30) NOT NULL,file_size bigint,sha256_hash char(64),telegram_message_id text,telegram_file_id text,encryption_algorithm varchar(40),trigger varchar(30) NOT NULL DEFAULT 'MANUAL',error_message text);
+ALTER TABLE backup_logs ADD COLUMN IF NOT EXISTS telegram_file_id text;
+ALTER TABLE backup_logs ADD COLUMN IF NOT EXISTS encryption_algorithm varchar(40);
+ALTER TABLE backup_logs ADD COLUMN IF NOT EXISTS trigger varchar(30) NOT NULL DEFAULT 'MANUAL';

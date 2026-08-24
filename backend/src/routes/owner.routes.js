@@ -2,11 +2,11 @@ const express = require("express");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const zlib = require("zlib");
 const { pool, query } = require("../db/database");
 const { auth, requireRoles } = require("../middleware/auth");
 const { notifyUser } = require("../services/notification.service");
 const { streamFromTelegram, configured: telegramStorageConfigured, inspectStorage } = require("../services/telegram-storage.service");
+const { createBackup, restoreBackup } = require("../services/backup.service");
 
 const router = express.Router();
 router.use(auth, requireRoles("OWNER", "OWNER_ASSISTANT"));
@@ -249,7 +249,7 @@ router.post("/system/test-storage", requireRoles("OWNER"), async (req, res, next
 router.get("/backups", requireOwnerPermission("BACKUP"), async (req, res, next) => {
   try {
     const result = await query(
-      `SELECT id, started_at, finished_at, status, file_size, sha256_hash, telegram_message_id, error_message
+      `SELECT id, started_at, finished_at, status, file_size, sha256_hash, telegram_message_id, telegram_file_id, encryption_algorithm, trigger, error_message
        FROM backup_logs ORDER BY started_at DESC LIMIT 50`
     );
     return res.json({ success: true, backups: result.rows });
@@ -270,100 +270,32 @@ router.put("/backup-settings", requireRoles("OWNER"), async (req, res, next) => 
     return res.status(400).json({ success: false, message: "أدخل معرّف قناة صحيحًا: -100... للقناة الخاصة أو @username للقناة العامة" });
   }
   try {
+    const storage = await inspectStorage(channelId);
+    if (!storage.canPost) return res.status(400).json({ success: false, message: "البوت لا يملك صلاحية الإرسال في هذه القناة" });
     await query(
       `INSERT INTO system_settings (key, value, updated_by, updated_at)
        VALUES ('backup_telegram_channel', $1::jsonb, $2, NOW())
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
       [JSON.stringify({ channelId }), req.user.sub]
     );
+    await query(
+      `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
+       VALUES ($1, 'UPDATE_BACKUP_CHANNEL', 'SYSTEM_SETTING', 'backup_telegram_channel', $2::jsonb)`,
+      [req.user.sub, JSON.stringify({ channelId })]
+    );
     return res.json({ success: true, channelId });
   } catch (error) { return next(error); }
 });
 
 router.post("/backups", requireRoles("OWNER"), async (req, res, next) => {
-  const startedAt = new Date();
-  let backupId = null;
-  let filePath = null;
+  try { return res.status(201).json({ success: true, backup: await createBackup({ actorUserId: req.user.sub }) }); }
+  catch (error) { return next(error); }
+});
 
-  try {
-    const created = await query(
-      "INSERT INTO backup_logs (started_at, status) VALUES ($1, 'RUNNING') RETURNING id",
-      [startedAt]
-    );
-    backupId = created.rows[0].id;
-
-    const settings = await query("SELECT value FROM system_settings WHERE key = 'backup_telegram_channel'");
-    const backupChannelId = settings.rows[0]?.value?.channelId || "";
-    if (!backupChannelId) {
-      const error = new Error("لم يتم تحديد قناة النسخ الاحتياطي من لوحة Owner");
-      error.statusCode = 400;
-      throw error;
-    }
-
-    const [users, requests, requestFiles, complaints, complaintFiles, complaintMessages, brokerLifts, brokerPayments, announcements, notifications, assistantPermissions, auditLogs, settingRows] = await Promise.all([
-      query("SELECT id, telegram_id, telegram_username, telegram_name, account_type, role, status, is_verified, created_at, updated_at FROM users ORDER BY created_at"),
-      query("SELECT * FROM requests ORDER BY created_at"),
-      query("SELECT * FROM request_files ORDER BY created_at"),
-      query("SELECT * FROM complaints ORDER BY created_at"),
-      query("SELECT * FROM complaint_files ORDER BY created_at"),
-      query("SELECT * FROM complaint_messages ORDER BY created_at"),
-      query("SELECT * FROM broker_lifts ORDER BY created_at"),
-      query("SELECT * FROM broker_payments ORDER BY payment_date"),
-      query("SELECT * FROM announcements ORDER BY created_at"),
-      query("SELECT * FROM notifications ORDER BY created_at"),
-      query("SELECT * FROM assistant_permissions ORDER BY assistant_id, permission"),
-      query("SELECT * FROM audit_logs ORDER BY created_at"),
-      query("SELECT * FROM system_settings ORDER BY key"),
-    ]);
-
-    const backup = Buffer.from(JSON.stringify({
-      format: "super-amazon-backup-v1",
-      generatedAt: new Date().toISOString(),
-      data: {
-        users: users.rows, requests: requests.rows, requestFiles: requestFiles.rows,
-        complaints: complaints.rows, complaintFiles: complaintFiles.rows, complaintMessages: complaintMessages.rows,
-        brokerLifts: brokerLifts.rows, brokerPayments: brokerPayments.rows,
-        announcements: announcements.rows, notifications: notifications.rows, assistantPermissions: assistantPermissions.rows,
-        auditLogs: auditLogs.rows, settings: settingRows.rows,
-      },
-    }));
-    const compressed = zlib.gzipSync(backup, { level: 9 });
-    const tempDirectory = path.resolve(__dirname, "../../tmp");
-    fs.mkdirSync(tempDirectory, { recursive: true });
-    const filename = `super-amazon-backup-${startedAt.toISOString().replace(/[:.]/g, "-")}.json.gz`;
-    filePath = path.join(tempDirectory, filename);
-    fs.writeFileSync(filePath, compressed);
-
-    const sha256 = crypto.createHash("sha256").update(compressed).digest("hex");
-    const telegramFile = await uploadToTelegram({
-      path: filePath,
-      originalname: filename,
-      mimetype: "application/gzip",
-      size: compressed.length,
-    }, "Super Amazon • نسخة احتياطية مشفرة من بيانات المنصة", backupChannelId);
-
-    const saved = await query(
-      `UPDATE backup_logs SET finished_at = NOW(), status = 'SUCCESS', file_size = $1, sha256_hash = $2,
-       telegram_message_id = $3 WHERE id = $4 RETURNING *`,
-      [compressed.length, sha256, String(telegramFile.messageId || ""), backupId]
-    );
-    await query(
-      `INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, details)
-       VALUES ($1, 'CREATE_BACKUP', 'BACKUP', $2, $3::jsonb)`,
-      [req.user.sub, backupId, JSON.stringify({ fileSize: compressed.length, sha256 })]
-    );
-    return res.status(201).json({ success: true, backup: saved.rows[0] });
-  } catch (error) {
-    if (backupId) {
-      await query(
-        "UPDATE backup_logs SET finished_at = NOW(), status = 'FAILED', error_message = $1 WHERE id = $2",
-        [String(error.message || "فشل إنشاء النسخة").slice(0, 1000), backupId]
-      ).catch(() => {});
-    }
-    return next(error);
-  } finally {
-    if (filePath) fs.unlink(filePath, () => {});
-  }
+router.post("/backups/:id/restore", requireRoles("OWNER"), async (req, res, next) => {
+  if (String(req.body?.confirmation || "") !== "RESTORE") return res.status(400).json({ success: false, message: "اكتب RESTORE لتأكيد الاستعادة الكاملة" });
+  try { await restoreBackup(req.params.id, req.user.sub); return res.json({ success: true, message: "تمت استعادة النسخة بنجاح. سجل الدخول مجددًا." }); }
+  catch (error) { return next(error); }
 });
 
 router.get("/users", requireOwnerPermission("USERS"), async (req, res, next) => {

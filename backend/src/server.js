@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const { PORT, CORS_ORIGIN, UPLOAD_DIR } = require("./config/env");
 const { initializeDatabase } = require("./db/database");
+const { startBackupScheduler } = require("./services/backup.service");
 const { errorHandler, notFound } = require("./middleware/error");
 
 fs.mkdirSync(path.resolve(__dirname, "..", UPLOAD_DIR), { recursive: true });
@@ -41,6 +42,7 @@ app.use(errorHandler);
 
 async function start() {
   await initializeDatabase();
+  startBackupScheduler();
   app.listen(PORT, () => {
     console.log(`Super Amazon backend listening on http://localhost:${PORT}`);
   });

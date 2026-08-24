@@ -2356,6 +2356,7 @@ function Backup({ role }) {
   const [creating, setCreating] = useState(false);
   const [channelId, setChannelId] = useState("");
   const [savingChannel, setSavingChannel] = useState(false);
+  const [restoringId, setRestoringId] = useState("");
   const [message, setMessage] = useState("");
 
   async function load() {
@@ -2392,8 +2393,18 @@ function Backup({ role }) {
     finally { setCreating(false); }
   }
 
+  async function restore(backup) {
+    if (!backup.telegram_file_id) return setMessage("هذه نسخة قديمة لا تدعم الاستعادة التلقائية.");
+    if (!window.confirm("سيتم استبدال بيانات المنصة الحالية بالكامل بهذه النسخة. هل تريد المتابعة؟")) return;
+    const confirmation = window.prompt("اكتب RESTORE لتأكيد الاستعادة:", "");
+    if (confirmation !== "RESTORE") return;
+    setRestoringId(backup.id); setMessage("");
+    try { const result = await api(`/owner/backups/${backup.id}/restore`, { method: "POST", body: JSON.stringify({ confirmation }) }); setMessage(result.message); }
+    catch (error) { setMessage(error.message); } finally { setRestoringId(""); }
+  }
+
   return <div className="page">
-    <Title t="النسخ الاحتياطي" d="نسخ فعلية مضغوطة من بيانات المنصة تُحفظ في قناة Telegram الخاصة." i="↻" />
+    <Title t="النسخ الاحتياطي" d="نسخ مشفّرة AES-256 تُحفظ تلقائيًا يوميًا في قناة Telegram الخاصة." i="↻" />
     {role === "OWNER" && <section className="panel" style={{ marginBottom: "18px" }}>
       <h3>قناة النسخ الاحتياطي</h3>
       <p>أدخل معرّف القناة الخاصة بصيغة <bdi dir="ltr">-100...</bdi>. أضف البوت مشرفًا بالقناة قبل إنشاء النسخة.</p>
@@ -2402,19 +2413,11 @@ function Backup({ role }) {
     </section>}
     <section className="panel">
       <h3>نسخة احتياطية جديدة</h3>
-      <p>يشمل النسخ المستخدمين والطلبات والمرفقات والمالية والشكاوى والإشعارات وسجل العمليات. لا تُنسخ الجلسات أو رموز الدخول.</p>
+      <p>يشمل النسخ المستخدمين والطلبات وسجلات المرفقات والمالية والشكاوى والإشعارات وسجل العمليات. تُنشأ نسخة تلقائية يوميًا بعد الساعة 03:00 بتوقيت بغداد، وتبقى الملفات الأصلية محفوظة في قناة المرفقات.</p>
       {role === "OWNER" ? <button className="primary" disabled={creating} onClick={createBackup}>{creating ? "جاري إنشاء النسخة وإرسالها..." : "إنشاء نسخة احتياطية الآن"}</button> : <p>يمكنك مراجعة سجل النسخ الاحتياطية. إنشاء النسخ متاح لحساب Owner فقط.</p>}
       {message && <p className="settings-saved">{message}</p>}
     </section>
-    <section className="panel" style={{ marginTop: "18px" }}>
-      <h3>سجل النسخ الاحتياطية</h3>
-      {loading ? <p>جاري تحميل السجل...</p> : <Table rows={backups.length ? backups.map((backup) => [
-        backup.status === "SUCCESS" ? "نسخة مكتملة" : backup.status === "FAILED" ? "نسخة فشلت" : "قيد الإنشاء",
-        backup.file_size ? `${(Number(backup.file_size) / 1024 / 1024).toFixed(2)} MB` : "—",
-        new Date(backup.started_at).toLocaleString("ar-IQ"),
-        backup.status === "SUCCESS" ? "تم الحفظ في Telegram" : backup.error_message || backup.status,
-      ]) : [["لا توجد نسخ بعد", "—", "—", "—"]]} />}
-    </section>
+    <section className="panel" style={{ marginTop: "18px" }}><h3>سجل النسخ والاستعادة</h3>{loading ? <p>جاري تحميل السجل...</p> : !backups.length ? <p>لا توجد نسخ بعد.</p> : <div className="notification-list">{backups.map((backup) => <article className="notification-card" key={backup.id}><i>{backup.status === "SUCCESS" ? "✓" : "!"}</i><div><b>{backup.status === "SUCCESS" ? "نسخة مكتملة ومشفّرة" : backup.status === "FAILED" ? "نسخة فشلت" : "نسخة قيد الإنشاء"}</b><span>{backup.file_size ? `${(Number(backup.file_size) / 1024 / 1024).toFixed(2)} MB` : "—"} • {backup.trigger === "AUTOMATIC" ? "تلقائية" : "يدوية"} • {new Date(backup.started_at).toLocaleString("ar-IQ")}</span><small>{backup.status === "SUCCESS" ? `AES-256-GCM • ${String(backup.sha256_hash || "").slice(0, 16)}…` : backup.error_message || backup.status}</small>{role === "OWNER" && backup.status === "SUCCESS" && <button className="secondary" disabled={Boolean(restoringId)} onClick={() => restore(backup)}>{restoringId === backup.id ? "جاري الاستعادة..." : backup.telegram_file_id ? "استعادة هذه النسخة" : "نسخة قديمة غير قابلة للاستعادة"}</button>}</div></article>)}</div>}</section>
   </div>;
 }
 
