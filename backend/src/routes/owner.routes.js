@@ -10,6 +10,11 @@ const { streamFromTelegram, configured: telegramStorageConfigured, inspectStorag
 
 const router = express.Router();
 router.use(auth, requireRoles("OWNER", "OWNER_ASSISTANT"));
+const locationCache = new Map();
+
+function mapsUrl(latitude, longitude) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
+}
 
 // Owner assistants never inherit the full Owner panel. Each protected section
 // checks the exact permission assigned from the Owner dashboard.
@@ -76,6 +81,35 @@ router.get("/requests/:id", requireOwnerPermission("REQUESTS"), async (req, res,
       [req.params.id]
     );
     return res.json({ success: true, request: { ...request.rows[0], files: files.rows } });
+  } catch (error) { return next(error); }
+});
+
+// Resolve coordinates only when the reviewer opens a request. This keeps the
+// request list fast and does not expose a third-party geocoding API to clients.
+router.get("/requests/:id/location", requireOwnerPermission("REQUESTS"), async (req, res, next) => {
+  try {
+    const result = await query("SELECT latitude, longitude FROM requests WHERE id = $1", [req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ success: false, message: "الطلب غير موجود" });
+    const { latitude, longitude } = result.rows[0];
+    const cacheKey = `${latitude},${longitude}`;
+    const mapUrl = mapsUrl(latitude, longitude);
+    const cached = locationCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return res.json({ success: true, ...cached.value, mapUrl });
+
+    let address = null;
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=ar&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`, {
+        headers: { "User-Agent": "SuperAmazon/1.0 (location-review)" },
+        signal: AbortSignal.timeout(6000),
+      });
+      const data = await response.json().catch(() => null);
+      if (response.ok && data?.display_name) address = data.display_name;
+    } catch {
+      // The reviewer can still use the map link if the public geocoder is busy.
+    }
+    const value = { address };
+    locationCache.set(cacheKey, { value, expiresAt: Date.now() + 24 * 60 * 60 * 1000 });
+    return res.json({ success: true, ...value, mapUrl });
   } catch (error) { return next(error); }
 });
 

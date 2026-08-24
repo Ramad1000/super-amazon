@@ -1954,6 +1954,7 @@ function Requests() {
 function RequestReview({ request, loading, onBack, onReview }) {
   const [previews, setPreviews] = useState({});
   const [message, setMessage] = useState("");
+  const [location, setLocation] = useState(null);
   useEffect(() => {
     let alive = true; const urls = [];
     async function loadPreviews() {
@@ -1970,9 +1971,20 @@ function RequestReview({ request, loading, onBack, onReview }) {
     }
     loadPreviews(); return () => { alive = false; urls.forEach((url) => URL.revokeObjectURL(url)); };
   }, [request?.id]);
+  useEffect(() => {
+    if (!request?.id) return;
+    let alive = true;
+    setLocation(null);
+    api(`/owner/requests/${request.id}/location`)
+      .then((result) => { if (alive) setLocation(result); })
+      .catch(() => { if (alive) setLocation({ address: null, mapUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${request.latitude},${request.longitude}`)}` }); });
+    return () => { alive = false; };
+  }, [request?.id, request?.latitude, request?.longitude]);
   const labels = { ID_FRONT: "المستمسك الأمامي", ID_BACK: "المستمسك الخلفي", FACE_PHOTO: "الصورة الشخصية", IDENTITY_VIDEO: "فيديو التحقق" };
   if (loading || !request) return <section className="panel"><p>جاري تحميل الطلب...</p></section>;
-  return <><button className="secondary" onClick={onBack}>← العودة إلى جميع الطلبات</button><section className="panel" style={{ marginTop: "15px" }}><h3>طلب #{request.request_number} • {accountLabel(request.applicant_type)}</h3><Table rows={[["الاسم الكامل", request.full_name, "حالة الطلب", request.status],["رقم الهاتف", request.father_phone, "رقم الأب", request.national_id],["حساب Telegram", `@${request.telegram_username || "—"}`, "Telegram ID", request.telegram_id],["الموقع", `${Number(request.latitude).toFixed(5)}, ${Number(request.longitude).toFixed(5)}`, "دقة الموقع", request.location_accuracy ? `${request.location_accuracy} متر` : "—"],["تاريخ الإرسال", new Date(request.submitted_at).toLocaleString("ar-IQ"), "الحساب الحالي", accountLabel(request.account_type)]]} /></section><section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والتحقق</h3>{message && <p className="error">{message}</p>}<div className="attachment-grid">{request.files.map((file) => <article className="attachment" key={file.id}><b>{labels[file.file_type] || file.file_type}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={labels[file.file_type]} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div></section><section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3>{request.status === "PENDING" ? <div className="inline-actions"><button className="primary" onClick={() => onReview(request.id, "APPROVED")}>موافقة وترقية الحساب</button><button className="secondary" onClick={() => onReview(request.id, "NEEDS_CORRECTION")}>طلب تصحيح</button><button className="secondary" onClick={() => onReview(request.id, "REJECTED_FINAL")}>رفض نهائي</button></div> : <p>هذا الطلب تمت مراجعته سابقًا: <b>{request.status}</b>{request.review_note ? ` — ${request.review_note}` : ""}</p>}</section></>;
+  const coordinates = `${Number(request.latitude).toFixed(5)}, ${Number(request.longitude).toFixed(5)}`;
+  const requestRows = [["الاسم الكامل", request.full_name, "حالة الطلب", request.status],["رقم الهاتف", request.father_phone, "رقم الأب", request.national_id],["حساب Telegram", `@${request.telegram_username || "—"}`, "Telegram ID", request.telegram_id],["العنوان", location ? (location.address || "تعذر جلب العنوان تلقائيًا — استخدم الخريطة") : "جاري تحديد العنوان...", "دقة الموقع", request.location_accuracy ? `${request.location_accuracy} متر` : "—"],["الإحداثيات", coordinates, "الخريطة", location?.mapUrl ? <a href={location.mapUrl} target="_blank" rel="noreferrer">فتح الموقع على الخريطة ↗</a> : "جاري تجهيز الرابط..."],["تاريخ الإرسال", new Date(request.submitted_at).toLocaleString("ar-IQ"), "الحساب الحالي", accountLabel(request.account_type)]];
+  return <><button className="secondary" onClick={onBack}>← العودة إلى جميع الطلبات</button><section className="panel" style={{ marginTop: "15px" }}><h3>طلب #{request.request_number} • {accountLabel(request.applicant_type)}</h3><Table rows={requestRows} /></section><section className="panel" style={{ marginTop: "18px" }}><h3>المرفقات والتحقق</h3>{message && <p className="error">{message}</p>}<div className="attachment-grid">{request.files.map((file) => <article className="attachment" key={file.id}><b>{labels[file.file_type] || file.file_type}</b><small>{file.original_name} • {(Number(file.file_size) / 1024 / 1024).toFixed(2)} MB</small>{previews[file.id] && file.mime_type.startsWith("image/") && <img src={previews[file.id]} alt={labels[file.file_type]} />}{previews[file.id] && file.mime_type.startsWith("video/") && <video controls src={previews[file.id]} />}{previews[file.id] && <a className="secondary" href={previews[file.id]} target="_blank" rel="noreferrer">فتح المرفق</a>}</article>)}</div></section><section className="panel" style={{ marginTop: "18px" }}><h3>قرار المراجعة</h3>{request.status === "PENDING" ? <div className="inline-actions"><button className="primary" onClick={() => onReview(request.id, "APPROVED")}>موافقة وترقية الحساب</button><button className="secondary" onClick={() => onReview(request.id, "NEEDS_CORRECTION")}>طلب تصحيح</button><button className="secondary" onClick={() => onReview(request.id, "REJECTED_FINAL")}>رفض نهائي</button></div> : <p>هذا الطلب تمت مراجعته سابقًا: <b>{request.status}</b>{request.review_note ? ` — ${request.review_note}` : ""}</p>}</section></>;
 }
 
 function Users({ role }) {
